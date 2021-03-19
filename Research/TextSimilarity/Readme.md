@@ -1,0 +1,1 @@
+Evaluates different text similarity metrics by applying them to a few reference texts.

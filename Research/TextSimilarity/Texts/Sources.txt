@@ -1,0 +1,5 @@
+Goldilocks1.txt: https://www.dltk-teach.com/rhymes/goldilocks_story.htm
+Goldilocks2.txt: https://learnenglishkids.britishcouncil.org/sites/kids/files/attachment/stories-goldilocks-and-the-three-bears-transcript_2012_07_13_0.pdf
+US-Elections1.txt: https://www.bbc.com/news/world-us-canada-55568621
+US-Elections2.txt: https://edition.cnn.com/2020/12/09/politics/2020-election-results-certified/index.html
+Numpy.txt: https://numpy.org/doc/stable/user/whatisnumpy.html

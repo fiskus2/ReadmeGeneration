@@ -1,0 +1,2559 @@
+If blinker is unavailable, create a fake class with the same
+        interface that allows sending of signals but will fail with an
+        error on anything else.  Instead of doing anything on send, it
+        will just ignore the arguments and do nothing instead.
+        
+Get the environment the app is running in, indicated by the
+    :envvar:`FLASK_ENV` environment variable. The default is
+    ``'production'``.
+    
+Get whether debug mode should be enabled for the app, indicated
+    by the :envvar:`FLASK_DEBUG` environment variable. The default is
+    ``True`` if :func:`.get_env` returns ``'development'``, or ``False``
+    otherwise.
+    
+Get whether the user has disabled loading dotenv files by setting
+    :envvar:`FLASK_SKIP_DOTENV`. The default is ``True``, load the
+    files.
+
+    :param default: What to return if the env var isn't set.
+    
+Request contexts disappear when the response is started on the server.
+    This is done for efficiency reasons and to make it less likely to encounter
+    memory leaks with badly written WSGI middlewares.  The downside is that if
+    you are using streamed responses, the generator cannot access request bound
+    information any more.
+
+    This function however can help you keep the context around for longer::
+
+        from flask import stream_with_context, request, Response
+
+        @app.route('/stream')
+        def streamed_response():
+            @stream_with_context
+            def generate():
+                yield 'Hello '
+                yield request.args['name']
+                yield '!'
+            return Response(generate())
+
+    Alternatively it can also be used around a specific generator::
+
+        from flask import stream_with_context, request, Response
+
+        @app.route('/stream')
+        def streamed_response():
+            def generate():
+                yield 'Hello '
+                yield request.args['name']
+                yield '!'
+            return Response(stream_with_context(generate()))
+
+    .. versionadded:: 0.9
+    
+Sometimes it is necessary to set additional headers in a view.  Because
+    views do not have to return response objects but can return a value that
+    is converted into a response object by Flask itself, it becomes tricky to
+    add headers to it.  This function can be called instead of using a return
+    and you will get a response object which you can use to attach headers.
+
+    If view looked like this and you want to add a new header::
+
+        def index():
+            return render_template('index.html', foo=42)
+
+    You can now do something like this::
+
+        def index():
+            response = make_response(render_template('index.html', foo=42))
+            response.headers['X-Parachutes'] = 'parachutes are cool'
+            return response
+
+    This function accepts the very same arguments you can return from a
+    view function.  This for example creates a response with a 404 error
+    code::
+
+        response = make_response(render_template('not_found.html'), 404)
+
+    The other use case of this function is to force the return value of a
+    view function into a response which is helpful with view
+    decorators::
+
+        response = make_response(view_function())
+        response.headers['X-Parachutes'] = 'parachutes are cool'
+
+    Internally this function does the following things:
+
+    -   if no arguments are passed, it creates a new response argument
+    -   if one argument is passed, :meth:`flask.Flask.make_response`
+        is invoked with it.
+    -   if more than one argument is passed, the arguments are passed
+        to the :meth:`flask.Flask.make_response` function as tuple.
+
+    .. versionadded:: 0.6
+    
+Generates a URL to the given endpoint with the method provided.
+
+    Variable arguments that are unknown to the target endpoint are appended
+    to the generated URL as query arguments.  If the value of a query argument
+    is ``None``, the whole pair is skipped.  In case blueprints are active
+    you can shortcut references to the same blueprint by prefixing the
+    local endpoint with a dot (``.``).
+
+    This will reference the index function local to the current blueprint::
+
+        url_for('.index')
+
+    See :ref:`url-building`.
+
+    Configuration values ``APPLICATION_ROOT`` and ``SERVER_NAME`` are only used when
+    generating URLs outside of a request context.
+
+    To integrate applications, :class:`Flask` has a hook to intercept URL build
+    errors through :attr:`Flask.url_build_error_handlers`.  The `url_for`
+    function results in a :exc:`~werkzeug.routing.BuildError` when the current
+    app does not have a URL for the given endpoint and values.  When it does, the
+    :data:`~flask.current_app` calls its :attr:`~Flask.url_build_error_handlers` if
+    it is not ``None``, which can return a string to use as the result of
+    `url_for` (instead of `url_for`'s default to raise the
+    :exc:`~werkzeug.routing.BuildError` exception) or re-raise the exception.
+    An example::
+
+        def external_url_handler(error, endpoint, values):
+            "Looks up an external URL when `url_for` cannot build a URL."
+            # This is an example of hooking the build_error_handler.
+            # Here, lookup_url is some utility function you've built
+            # which looks up the endpoint in some external URL registry.
+            url = lookup_url(endpoint, **values)
+            if url is None:
+                # External lookup did not have a URL.
+                # Re-raise the BuildError, in context of original traceback.
+                exc_type, exc_value, tb = sys.exc_info()
+                if exc_value is error:
+                    raise exc_type(exc_value).with_traceback(tb)
+                else:
+                    raise error
+            # url_for will use this result, instead of raising BuildError.
+            return url
+
+        app.url_build_error_handlers.append(external_url_handler)
+
+    Here, `error` is the instance of :exc:`~werkzeug.routing.BuildError`, and
+    `endpoint` and `values` are the arguments passed into `url_for`.  Note
+    that this is for building URLs outside the current application, and not for
+    handling 404 NotFound errors.
+
+    .. versionadded:: 0.10
+       The `_scheme` parameter was added.
+
+    .. versionadded:: 0.9
+       The `_anchor` and `_method` parameters were added.
+
+    .. versionadded:: 0.9
+       Calls :meth:`Flask.handle_build_error` on
+       :exc:`~werkzeug.routing.BuildError`.
+
+    :param endpoint: the endpoint of the URL (name of the function)
+    :param values: the variable arguments of the URL rule
+    :param _external: if set to ``True``, an absolute URL is generated. Server
+      address can be changed via ``SERVER_NAME`` configuration variable which
+      falls back to the `Host` header, then to the IP and port of the request.
+    :param _scheme: a string specifying the desired URL scheme. The `_external`
+      parameter must be set to ``True`` or a :exc:`ValueError` is raised. The default
+      behavior uses the same scheme as the current request, or
+      :data:`PREFERRED_URL_SCHEME` if no request context is available.
+      This also can be set to an empty string to build protocol-relative
+      URLs.
+    :param _anchor: if provided this is added as anchor to the URL.
+    :param _method: if provided this explicitly specifies an HTTP method.
+    
+Loads a macro (or variable) a template exports.  This can be used to
+    invoke a macro from within Python code.  If you for example have a
+    template named :file:`_cider.html` with the following contents:
+
+    .. sourcecode:: html+jinja
+
+       {% macro hello(name) %}Hello {{ name }}!{% endmacro %}
+
+    You can access this from Python code like this::
+
+        hello = get_template_attribute('_cider.html', 'hello')
+        return hello('World')
+
+    .. versionadded:: 0.2
+
+    :param template_name: the name of the template
+    :param attribute: the name of the variable of macro to access
+    
+Flashes a message to the next request.  In order to remove the
+    flashed message from the session and to display it to the user,
+    the template has to call :func:`get_flashed_messages`.
+
+    .. versionchanged:: 0.3
+       `category` parameter added.
+
+    :param message: the message to be flashed.
+    :param category: the category for the message.  The following values
+                     are recommended: ``'message'`` for any kind of message,
+                     ``'error'`` for errors, ``'info'`` for information
+                     messages and ``'warning'`` for warnings.  However any
+                     kind of string can be used as category.
+    
+Pulls all flashed messages from the session and returns them.
+    Further calls in the same request to the function will return
+    the same messages.  By default just the messages are returned,
+    but when `with_categories` is set to ``True``, the return value will
+    be a list of tuples in the form ``(category, message)`` instead.
+
+    Filter the flashed messages to one or more categories by providing those
+    categories in `category_filter`.  This allows rendering categories in
+    separate html blocks.  The `with_categories` and `category_filter`
+    arguments are distinct:
+
+    * `with_categories` controls whether categories are returned with message
+      text (``True`` gives a tuple, where ``False`` gives just the message text).
+    * `category_filter` filters the messages down to only those matching the
+      provided categories.
+
+    See :doc:`/patterns/flashing` for examples.
+
+    .. versionchanged:: 0.3
+       `with_categories` parameter added.
+
+    .. versionchanged:: 0.9
+        `category_filter` parameter added.
+
+    :param with_categories: set to ``True`` to also receive categories.
+    :param category_filter: filter of categories to limit return values.  Only
+                            categories in the list will be returned.
+    
+Send the contents of a file to the client.
+
+    The first argument can be a file path or a file-like object. Paths
+    are preferred in most cases because Werkzeug can manage the file and
+    get extra information from the path. Passing a file-like object
+    requires that the file is opened in binary mode, and is mostly
+    useful when building a file in memory with :class:`io.BytesIO`.
+
+    Never pass file paths provided by a user. The path is assumed to be
+    trusted, so a user could craft a path to access a file you didn't
+    intend. Use :func:`send_from_directory` to safely serve
+    user-requested paths from within a directory.
+
+    If the WSGI server sets a ``file_wrapper`` in ``environ``, it is
+    used, otherwise Werkzeug's built-in wrapper is used. Alternatively,
+    if the HTTP server supports ``X-Sendfile``, configuring Flask with
+    ``USE_X_SENDFILE = True`` will tell the server to send the given
+    path, which is much more efficient than reading it in Python.
+
+    :param path_or_file: The path to the file to send, relative to the
+        current working directory if a relative path is given.
+        Alternatively, a file-like object opened in binary mode. Make
+        sure the file pointer is seeked to the start of the data.
+    :param mimetype: The MIME type to send for the file. If not
+        provided, it will try to detect it from the file name.
+    :param as_attachment: Indicate to a browser that it should offer to
+        save the file instead of displaying it.
+    :param download_name: The default name browsers will use when saving
+        the file. Defaults to the passed file name.
+    :param conditional: Enable conditional and range responses based on
+        request headers. Requires passing a file path and ``environ``.
+    :param etag: Calculate an ETag for the file, which requires passing
+        a file path. Can also be a string to use instead.
+    :param last_modified: The last modified time to send for the file,
+        in seconds. If not provided, it will try to detect it from the
+        file path.
+    :param max_age: How long the client should cache the file, in
+        seconds. If set, ``Cache-Control`` will be ``public``, otherwise
+        it will be ``no-cache`` to prefer conditional caching.
+
+    .. versionchanged:: 2.0
+        ``download_name`` replaces the ``attachment_filename``
+        parameter. If ``as_attachment=False``, it is passed with
+        ``Content-Disposition: inline`` instead.
+
+    .. versionchanged:: 2.0
+        ``max_age`` replaces the ``cache_timeout`` parameter.
+        ``conditional`` is enabled and ``max_age`` is not set by
+        default.
+
+    .. versionchanged:: 2.0.0
+        ``etag`` replaces the ``add_etags`` parameter. It can be a
+        string to use instead of generating one.
+
+    .. versionchanged:: 2.0
+        Passing a file-like object that inherits from
+        :class:`~io.TextIOBase` will raise a :exc:`ValueError` rather
+        than sending an empty file.
+
+    .. versionadded:: 2.0
+        Moved the implementation to Werkzeug. This is now a wrapper to
+        pass some Flask-specific arguments.
+
+    .. versionchanged:: 1.1
+        ``filename`` may be a :class:`~os.PathLike` object.
+
+    .. versionchanged:: 1.1
+        Passing a :class:`~io.BytesIO` object supports range requests.
+
+    .. versionchanged:: 1.0.3
+        Filenames are encoded with ASCII instead of Latin-1 for broader
+        compatibility with WSGI servers.
+
+    .. versionchanged:: 1.0
+        UTF-8 filenames as specified in :rfc:`2231` are supported.
+
+    .. versionchanged:: 0.12
+        The filename is no longer automatically inferred from file
+        objects. If you want to use automatic MIME and etag support,
+        pass a filename via ``filename_or_fp`` or
+        ``attachment_filename``.
+
+    .. versionchanged:: 0.12
+        ``attachment_filename`` is preferred over ``filename`` for MIME
+        detection.
+
+    .. versionchanged:: 0.9
+        ``cache_timeout`` defaults to
+        :meth:`Flask.get_send_file_max_age`.
+
+    .. versionchanged:: 0.7
+        MIME guessing and etag support for file-like objects was
+        deprecated because it was unreliable. Pass a filename if you are
+        able to, otherwise attach an etag yourself.
+
+    .. versionchanged:: 0.5
+        The ``add_etags``, ``cache_timeout`` and ``conditional``
+        parameters were added. The default behavior is to add etags.
+
+    .. versionadded:: 0.2
+    
+Safely join zero or more untrusted path components to a base
+    directory to avoid escaping the base directory.
+
+    :param directory: The trusted base directory.
+    :param pathnames: The untrusted path components relative to the
+        base directory.
+    :return: A safe path, otherwise ``None``.
+    
+Send a file from within a directory using :func:`send_file`.
+
+    .. code-block:: python
+
+        @app.route("/uploads/<path:name>")
+        def download_file(name):
+            return send_from_directory(
+                app.config['UPLOAD_FOLDER'], name, as_attachment=True
+            )
+
+    This is a secure way to serve files from a folder, such as static
+    files or uploads. Uses :func:`~werkzeug.security.safe_join` to
+    ensure the path coming from the client is not maliciously crafted to
+    point outside the specified directory.
+
+    If the final path does not point to an existing regular file,
+    raises a 404 :exc:`~werkzeug.exceptions.NotFound` error.
+
+    :param directory: The directory that ``path`` must be located under.
+    :param path: The path to the file to send, relative to
+        ``directory``.
+    :param kwargs: Arguments to pass to :func:`send_file`.
+
+    .. versionadded:: 2.0
+        Moved the implementation to Werkzeug. This is now a wrapper to
+        pass some Flask-specific arguments.
+
+    .. versionadded:: 0.5
+    
+A decorator that converts a function into a lazy property.  The
+    function wrapped is called the first time to retrieve the result
+    and then that calculated result is used the next time you access
+    the value.  Works like the one in Werkzeug but has a lock for
+    thread safety.
+    
+Returns the total seconds from a timedelta object.
+
+    :param timedelta td: the timedelta to be converted in seconds
+
+    :returns: number of seconds
+    :rtype: int
+    
+Determine if the given string is an IP address.
+
+    :param value: value to check
+    :type value: str
+
+    :return: True if string is an IP address
+    :rtype: bool
+    
+An :class:`~werkzeug.test.EnvironBuilder`, that takes defaults from the
+    application.
+
+    :param app: The Flask application to configure the environment from.
+    :param path: URL path being requested.
+    :param base_url: Base URL where the app is being served, which
+        ``path`` is relative to. If not given, built from
+        :data:`PREFERRED_URL_SCHEME`, ``subdomain``,
+        :data:`SERVER_NAME`, and :data:`APPLICATION_ROOT`.
+    :param subdomain: Subdomain name to append to :data:`SERVER_NAME`.
+    :param url_scheme: Scheme to use instead of
+        :data:`PREFERRED_URL_SCHEME`.
+    :param json: If given, this is serialized as JSON and passed as
+        ``data``. Also defaults ``content_type`` to
+        ``application/json``.
+    :param args: other positional arguments passed to
+        :class:`~werkzeug.test.EnvironBuilder`.
+    :param kwargs: other keyword arguments passed to
+        :class:`~werkzeug.test.EnvironBuilder`.
+    
+Serialize ``obj`` to a JSON-formatted string.
+
+        The serialization will be configured according to the config associated
+        with this EnvironBuilder's ``app``.
+        
+Works like a regular Werkzeug test client but has some knowledge about
+    how Flask works to defer the cleanup of the request context stack to the
+    end of a ``with`` body when used in a ``with`` statement.  For general
+    information about how to use this class refer to
+    :class:`werkzeug.test.Client`.
+
+    .. versionchanged:: 0.12
+       `app.test_client()` includes preset default environment, which can be
+       set after instantiation of the `app.test_client()` object in
+       `client.environ_base`.
+
+    Basic usage is outlined in the :doc:`/testing` chapter.
+    
+When used in combination with a ``with`` statement this opens a
+        session transaction.  This can be used to modify the session that
+        the test client uses.  Once the ``with`` block is left the session is
+        stored back.
+
+        ::
+
+            with client.session_transaction() as session:
+                session['value'] = 42
+
+        Internally this is implemented by going through a temporary test
+        request context and since session handling could depend on
+        request variables this function accepts the same arguments as
+        :meth:`~flask.Flask.test_request_context` which are directly
+        passed through.
+        
+A :class:`~click.testing.CliRunner` for testing a Flask app's
+    CLI commands. Typically created using
+    :meth:`~flask.Flask.test_cli_runner`. See :ref:`testing-cli`.
+    
+Invokes a CLI command in an isolated environment. See
+        :meth:`CliRunner.invoke <click.testing.CliRunner.invoke>` for
+        full method documentation. See :ref:`testing-cli` for examples.
+
+        If the ``obj`` argument is not given, passes an instance of
+        :class:`~flask.cli.ScriptInfo` that knows how to load the Flask
+        app being tested.
+
+        :param cli: Command object to invoke. Default is the app's
+            :attr:`~flask.app.Flask.cli` group.
+        :param args: List of strings to invoke the command with.
+
+        :return: a :class:`~click.testing.Result` object.
+        
+Default template context processor.  Injects `request`,
+    `session` and `g`.
+    
+Works like a regular Jinja2 environment but has some additional
+    knowledge of how Flask's blueprint works so that it can prepend the
+    name of the blueprint to referenced templates if necessary.
+    
+A loader that looks for templates in the application and all
+    the blueprint folders.
+    
+Renders the template and fires the signal
+Renders a template from the template folder with the given
+    context.
+
+    :param template_name_or_list: the name of the template to be
+                                  rendered, or an iterable with template names
+                                  the first one existing will be rendered
+    :param context: the variables that should be available in the
+                    context of the template.
+    
+Renders a template from the given template source string
+    with the given context. Template variables will be autoescaped.
+
+    :param source: the source code of the template to be
+                   rendered
+    :param context: the variables that should be available in the
+                    context of the template.
+    
+A plain object. Used as a namespace for storing data during an
+    application context.
+
+    Creating an app context automatically creates this object, which is
+    made available as the :data:`g` proxy.
+
+    .. describe:: 'key' in g
+
+        Check whether an attribute is present.
+
+        .. versionadded:: 0.10
+
+    .. describe:: iter(g)
+
+        Return an iterator over the attribute names.
+
+        .. versionadded:: 0.10
+    
+Get an attribute by name, or a default value. Like
+        :meth:`dict.get`.
+
+        :param name: Name of attribute to get.
+        :param default: Value to return if the attribute is not present.
+
+        .. versionadded:: 0.10
+        
+Get and remove an attribute by name. Like :meth:`dict.pop`.
+
+        :param name: Name of attribute to pop.
+        :param default: Value to return if the attribute is not present,
+            instead of raising a ``KeyError``.
+
+        .. versionadded:: 0.11
+        
+Get the value of an attribute if it is present, otherwise
+        set and return a default value. Like :meth:`dict.setdefault`.
+
+        :param name: Name of attribute to get.
+        :param default: Value to set and return if the attribute is not
+            present.
+
+        .. versionadded:: 0.11
+        
+Executes a function after this request.  This is useful to modify
+    response objects.  The function is passed the response object and has
+    to return the same or a new one.
+
+    Example::
+
+        @app.route('/')
+        def index():
+            @after_this_request
+            def add_header(response):
+                response.headers['X-Foo'] = 'Parachute'
+                return response
+            return 'Hello World!'
+
+    This is more useful if a function other than the view function wants to
+    modify a response.  For instance think of a decorator that wants to add
+    some headers without converting the return value into a response object.
+
+    .. versionadded:: 0.9
+    
+A helper function that decorates a function to retain the current
+    request context.  This is useful when working with greenlets.  The moment
+    the function is decorated a copy of the request context is created and
+    then pushed when the function is called.  The current session is also
+    included in the copied request context.
+
+    Example::
+
+        import gevent
+        from flask import copy_current_request_context
+
+        @app.route('/')
+        def index():
+            @copy_current_request_context
+            def do_some_work():
+                # do some work here, it can access flask.request or
+                # flask.session like you would otherwise in the view function.
+                ...
+            gevent.spawn(do_some_work)
+            return 'Regular response'
+
+    .. versionadded:: 0.10
+    
+If you have code that wants to test if a request context is there or
+    not this function can be used.  For instance, you may want to take advantage
+    of request information if the request object is available, but fail
+    silently if it is unavailable.
+
+    ::
+
+        class User(db.Model):
+
+            def __init__(self, username, remote_addr=None):
+                self.username = username
+                if remote_addr is None and has_request_context():
+                    remote_addr = request.remote_addr
+                self.remote_addr = remote_addr
+
+    Alternatively you can also just test any of the context bound objects
+    (such as :class:`request` or :class:`g`) for truthness::
+
+        class User(db.Model):
+
+            def __init__(self, username, remote_addr=None):
+                self.username = username
+                if remote_addr is None and request:
+                    remote_addr = request.remote_addr
+                self.remote_addr = remote_addr
+
+    .. versionadded:: 0.7
+    
+Works like :func:`has_request_context` but for the application
+    context.  You can also just do a boolean check on the
+    :data:`current_app` object instead.
+
+    .. versionadded:: 0.9
+    
+The application context binds an application object implicitly
+    to the current thread or greenlet, similar to how the
+    :class:`RequestContext` binds request information.  The application
+    context is also implicitly created if a request context is created
+    but the application is not on top of the individual application
+    context.
+    
+Binds the app context to the current context.
+Pops the app context.
+The request context contains all request relevant information.  It is
+    created at the beginning of the request and pushed to the
+    `_request_ctx_stack` and removed at the end of it.  It will create the
+    URL adapter and request object for the WSGI environment provided.
+
+    Do not attempt to use this class directly, instead use
+    :meth:`~flask.Flask.test_request_context` and
+    :meth:`~flask.Flask.request_context` to create this object.
+
+    When the request context is popped, it will evaluate all the
+    functions registered on the application for teardown execution
+    (:meth:`~flask.Flask.teardown_request`).
+
+    The request context is automatically popped at the end of the request
+    for you.  In debug mode the request context is kept around if
+    exceptions happen so that interactive debuggers have a chance to
+    introspect the data.  With 0.4 this can also be forced for requests
+    that did not fail and outside of ``DEBUG`` mode.  By setting
+    ``'flask._preserve_context'`` to ``True`` on the WSGI environment the
+    context will not pop itself at the end of the request.  This is used by
+    the :meth:`~flask.Flask.test_client` for example to implement the
+    deferred cleanup functionality.
+
+    You might find this helpful for unittests where you need the
+    information from the context local around for a little longer.  Make
+    sure to properly :meth:`~werkzeug.LocalStack.pop` the stack yourself in
+    that situation, otherwise your unittests will leak memory.
+    
+Creates a copy of this request context with the same request object.
+        This can be used to move a request context to a different greenlet.
+        Because the actual request object is the same this cannot be used to
+        move a request context to a different thread unless access to the
+        request object is locked.
+
+        .. versionadded:: 0.10
+
+        .. versionchanged:: 1.1
+           The current session object is used instead of reloading the original
+           data. This prevents `flask.session` pointing to an out-of-date object.
+        
+Can be overridden by a subclass to hook into the matching
+        of the request.
+        
+Binds the request context to the current context.
+Pops the request context and unbinds it by doing that.  This will
+        also trigger the execution of functions registered by the
+        :meth:`~flask.Flask.teardown_request` decorator.
+
+        .. versionchanged:: 0.9
+           Added the `exc` argument.
+        
+Find the most appropriate error stream for the application. If a request
+    is active, log to ``wsgi.errors``, otherwise use ``sys.stderr``.
+
+    If you configure your own :class:`logging.StreamHandler`, you may want to
+    use this for the stream. If you are using file or dict configuration and
+    can't import this directly, you can refer to it as
+    ``ext://flask.logging.wsgi_errors_stream``.
+    
+Check if there is a handler in the logging chain that will handle the
+    given logger's :meth:`effective level <~logging.Logger.getEffectiveLevel>`.
+    
+Get the Flask app's logger and configure it if needed.
+
+    The logger name will be the same as
+    :attr:`app.import_name <flask.Flask.name>`.
+
+    When :attr:`~flask.Flask.debug` is enabled, set the logger level to
+    :data:`logging.DEBUG` if it is not set.
+
+    If there is no handler for the logger's effective level, add a
+    :class:`~logging.StreamHandler` for
+    :func:`~flask.logging.wsgi_errors_stream` with a basic format.
+    
+Temporary holder object for registering a blueprint with the
+    application.  An instance of this class is created by the
+    :meth:`~flask.Blueprint.make_setup_state` method and later passed
+    to all register callback functions.
+    
+A helper method to register a rule (and optionally a view function)
+        to the application.  The endpoint is automatically prefixed with the
+        blueprint's name.
+        
+Represents a blueprint, a collection of routes and other
+    app-related functions that can be registered on a real application
+    later.
+
+    A blueprint is an object that allows defining application functions
+    without requiring an application object ahead of time. It uses the
+    same decorators as :class:`~flask.Flask`, but defers the need for an
+    application by recording them for later registration.
+
+    Decorating a function with a blueprint creates a deferred function
+    that is called with :class:`~flask.blueprints.BlueprintSetupState`
+    when the blueprint is registered on an application.
+
+    See :doc:`/blueprints` for more information.
+
+    :param name: The name of the blueprint. Will be prepended to each
+        endpoint name.
+    :param import_name: The name of the blueprint package, usually
+        ``__name__``. This helps locate the ``root_path`` for the
+        blueprint.
+    :param static_folder: A folder with static files that should be
+        served by the blueprint's static route. The path is relative to
+        the blueprint's root path. Blueprint static files are disabled
+        by default.
+    :param static_url_path: The url to serve static files from.
+        Defaults to ``static_folder``. If the blueprint does not have
+        a ``url_prefix``, the app's static route will take precedence,
+        and the blueprint's static files won't be accessible.
+    :param template_folder: A folder with templates that should be added
+        to the app's template search path. The path is relative to the
+        blueprint's root path. Blueprint templates are disabled by
+        default. Blueprint templates have a lower precedence than those
+        in the app's templates folder.
+    :param url_prefix: A path to prepend to all of the blueprint's URLs,
+        to make them distinct from the rest of the app's routes.
+    :param subdomain: A subdomain that blueprint routes will match on by
+        default.
+    :param url_defaults: A dict of default values that blueprint routes
+        will receive by default.
+    :param root_path: By default, the blueprint will automatically set
+        this based on ``import_name``. In certain situations this
+        automatic detection can fail, so the path can be specified
+        manually instead.
+
+    .. versionchanged:: 1.1.0
+        Blueprints have a ``cli`` group to register nested CLI commands.
+        The ``cli_group`` parameter controls the name of the group under
+        the ``flask`` command.
+
+    .. versionadded:: 0.7
+    
+Registers a function that is called when the blueprint is
+        registered on the application.  This function is called with the
+        state as argument as returned by the :meth:`make_setup_state`
+        method.
+        
+Works like :meth:`record` but wraps the function in another
+        function that will ensure the function is only called once.  If the
+        blueprint is registered a second time on the application, the
+        function passed is not called.
+        
+Creates an instance of :meth:`~flask.blueprints.BlueprintSetupState`
+        object that is later passed to the register callback functions.
+        Subclasses can override this to return a subclass of the setup state.
+        
+Called by :meth:`Flask.register_blueprint` to register all
+        views and callbacks registered on the blueprint with the
+        application. Creates a :class:`.BlueprintSetupState` and calls
+        each :meth:`record` callbackwith it.
+
+        :param app: The application this blueprint is being registered
+            with.
+        :param options: Keyword arguments forwarded from
+            :meth:`~Flask.register_blueprint`.
+        :param first_registration: Whether this is the first time this
+            blueprint has been registered on the application.
+        
+Like :meth:`Flask.add_url_rule` but for a blueprint.  The endpoint for
+        the :func:`url_for` function is prefixed with the name of the blueprint.
+        
+Register a custom template filter, available application wide.  Like
+        :meth:`Flask.template_filter` but for a blueprint.
+
+        :param name: the optional name of the filter, otherwise the
+                     function name will be used.
+        
+Register a custom template filter, available application wide.  Like
+        :meth:`Flask.add_template_filter` but for a blueprint.  Works exactly
+        like the :meth:`app_template_filter` decorator.
+
+        :param name: the optional name of the filter, otherwise the
+                     function name will be used.
+        
+Register a custom template test, available application wide.  Like
+        :meth:`Flask.template_test` but for a blueprint.
+
+        .. versionadded:: 0.10
+
+        :param name: the optional name of the test, otherwise the
+                     function name will be used.
+        
+Register a custom template test, available application wide.  Like
+        :meth:`Flask.add_template_test` but for a blueprint.  Works exactly
+        like the :meth:`app_template_test` decorator.
+
+        .. versionadded:: 0.10
+
+        :param name: the optional name of the test, otherwise the
+                     function name will be used.
+        
+Register a custom template global, available application wide.  Like
+        :meth:`Flask.template_global` but for a blueprint.
+
+        .. versionadded:: 0.10
+
+        :param name: the optional name of the global, otherwise the
+                     function name will be used.
+        
+Register a custom template global, available application wide.  Like
+        :meth:`Flask.add_template_global` but for a blueprint.  Works exactly
+        like the :meth:`app_template_global` decorator.
+
+        .. versionadded:: 0.10
+
+        :param name: the optional name of the global, otherwise the
+                     function name will be used.
+        
+Like :meth:`Flask.before_request`.  Such a function is executed
+        before each request, even if outside of a blueprint.
+        
+Like :meth:`Flask.before_first_request`.  Such a function is
+        executed before the first request to the application.
+        
+Like :meth:`Flask.after_request` but for a blueprint.  Such a function
+        is executed after each request, even if outside of the blueprint.
+        
+Like :meth:`Flask.teardown_request` but for a blueprint.  Such a
+        function is executed when tearing down each request, even if outside of
+        the blueprint.
+        
+Like :meth:`Flask.context_processor` but for a blueprint.  Such a
+        function is executed each request, even if outside of the blueprint.
+        
+Like :meth:`Flask.errorhandler` but for a blueprint.  This
+        handler is used for all requests, even if outside of the blueprint.
+        
+Same as :meth:`url_value_preprocessor` but application wide.
+Same as :meth:`url_defaults` but application wide.
+Wraps a method so that it performs a check in debug mode if the
+    first request was already handled.
+    
+Common behavior shared between :class:`~flask.Flask` and
+    :class:`~flask.blueprints.Blueprint`.
+
+    :param import_name: The import name of the module where this object
+        is defined. Usually :attr:`__name__` should be used.
+    :param static_folder: Path to a folder of static files to serve.
+        If this is set, a static route will be added.
+    :param static_url_path: URL prefix for the static route.
+    :param template_folder: Path to a folder containing template files.
+        for rendering. If this is set, a Jinja loader will be added.
+    :param root_path: The path that static, template, and resource files
+        are relative to. Typically not set, it is discovered based on
+        the ``import_name``.
+
+    .. versionadded:: 2.0.0
+    
+The absolute path to the configured static folder. ``None``
+        if no static folder is set.
+        
+``True`` if :attr:`static_folder` is set.
+
+        .. versionadded:: 0.5
+        
+The URL prefix that the static route will be accessible from.
+
+        If it was not configured during init, it is derived from
+        :attr:`static_folder`.
+        
+Used by :func:`send_file` to determine the ``max_age`` cache
+        value for a given file path if it wasn't passed.
+
+        By default, this returns :data:`SEND_FILE_MAX_AGE_DEFAULT` from
+        the configuration of :data:`~flask.current_app`. This defaults
+        to ``None``, which tells the browser to use conditional requests
+        instead of a timed cache, which is usually preferable.
+
+        .. versionchanged:: 2.0
+            The default configuration is ``None`` instead of 12 hours.
+
+        .. versionadded:: 0.9
+        
+The view function used to serve files from
+        :attr:`static_folder`. A route is automatically registered for
+        this view at :attr:`static_url_path` if :attr:`static_folder` is
+        set.
+
+        .. versionadded:: 0.5
+        
+The Jinja loader for this object's templates. By default this
+        is a class :class:`jinja2.loaders.FileSystemLoader` to
+        :attr:`template_folder` if it is set.
+
+        .. versionadded:: 0.5
+        
+Open a resource file relative to :attr:`root_path` for
+        reading.
+
+        For example, if the file ``schema.sql`` is next to the file
+        ``app.py`` where the ``Flask`` app is defined, it can be opened
+        with:
+
+        .. code-block:: python
+
+            with app.open_resource("schema.sql") as f:
+                conn.executescript(f.read())
+
+        :param resource: Path to the resource relative to
+            :attr:`root_path`.
+        :param mode: Open the file in this mode. Only reading is
+            supported, valid values are "r" (or "rt") and "rb".
+        
+Shortcut for :meth:`route` with ``methods=["GET"]``.
+
+        .. versionadded:: 2.0
+        
+Shortcut for :meth:`route` with ``methods=["POST"]``.
+
+        .. versionadded:: 2.0
+        
+Shortcut for :meth:`route` with ``methods=["PUT"]``.
+
+        .. versionadded:: 2.0
+        
+Shortcut for :meth:`route` with ``methods=["DELETE"]``.
+
+        .. versionadded:: 2.0
+        
+Shortcut for :meth:`route` with ``methods=["PATCH"]``.
+
+        .. versionadded:: 2.0
+        
+Decorate a view function to register it with the given URL
+        rule and options. Calls :meth:`add_url_rule`, which has more
+        details about the implementation.
+
+        .. code-block:: python
+
+            @app.route("/")
+            def index():
+                return "Hello, World!"
+
+        See :ref:`url-route-registrations`.
+
+        The endpoint name for the route defaults to the name of the view
+        function if the ``endpoint`` parameter isn't passed.
+
+        The ``methods`` parameter defaults to ``["GET"]``. ``HEAD`` and
+        ``OPTIONS`` are added automatically.
+
+        :param rule: The URL rule string.
+        :param options: Extra options passed to the
+            :class:`~werkzeug.routing.Rule` object.
+        
+Register a rule for routing incoming requests and building
+        URLs. The :meth:`route` decorator is a shortcut to call this
+        with the ``view_func`` argument. These are equivalent:
+
+        .. code-block:: python
+
+            @app.route("/")
+            def index():
+                ...
+
+        .. code-block:: python
+
+            def index():
+                ...
+
+            app.add_url_rule("/", view_func=index)
+
+        See :ref:`url-route-registrations`.
+
+        The endpoint name for the route defaults to the name of the view
+        function if the ``endpoint`` parameter isn't passed. An error
+        will be raised if a function has already been registered for the
+        endpoint.
+
+        The ``methods`` parameter defaults to ``["GET"]``. ``HEAD`` is
+        always added automatically, and ``OPTIONS`` is added
+        automatically by default.
+
+        ``view_func`` does not necessarily need to be passed, but if the
+        rule should participate in routing an endpoint name must be
+        associated with a view function at some point with the
+        :meth:`endpoint` decorator.
+
+        .. code-block:: python
+
+            app.add_url_rule("/", endpoint="index")
+
+            @app.endpoint("index")
+            def index():
+                ...
+
+        If ``view_func`` has a ``required_methods`` attribute, those
+        methods are added to the passed and automatic methods. If it
+        has a ``provide_automatic_methods`` attribute, it is used as the
+        default if the parameter is not passed.
+
+        :param rule: The URL rule string.
+        :param endpoint: The endpoint name to associate with the rule
+            and view function. Used when routing and building URLs.
+            Defaults to ``view_func.__name__``.
+        :param view_func: The view function to associate with the
+            endpoint name.
+        :param provide_automatic_options: Add the ``OPTIONS`` method and
+            respond to ``OPTIONS`` requests automatically.
+        :param options: Extra options passed to the
+            :class:`~werkzeug.routing.Rule` object.
+        
+Decorate a view function to register it for the given
+        endpoint. Used if a rule is added without a ``view_func`` with
+        :meth:`add_url_rule`.
+
+        .. code-block:: python
+
+            app.add_url_rule("/ex", endpoint="example")
+
+            @app.endpoint("example")
+            def example():
+                ...
+
+        :param endpoint: The endpoint name to associate with the view
+            function.
+        
+Register a function to run before each request.
+
+        For example, this can be used to open a database connection, or
+        to load the logged in user from the session.
+
+        .. code-block:: python
+
+            @app.before_request
+            def load_user():
+                if "user_id" in session:
+                    g.user = db.session.get(session["user_id"])
+
+        The function will be called without any arguments. If it returns
+        a non-``None`` value, the value is handled as if it was the
+        return value from the view, and further request handling is
+        stopped.
+        
+Register a function to run after each request to this object.
+
+        The function is called with the response object, and must return
+        a response object. This allows the functions to modify or
+        replace the response before it is sent.
+
+        If a function raises an exception, any remaining
+        ``after_request`` functions will not be called. Therefore, this
+        should not be used for actions that must execute, such as to
+        close resources. Use :meth:`teardown_request` for that.
+        
+Register a function to be run at the end of each request,
+        regardless of whether there was an exception or not.  These functions
+        are executed when the request context is popped, even if not an
+        actual request was performed.
+
+        Example::
+
+            ctx = app.test_request_context()
+            ctx.push()
+            ...
+            ctx.pop()
+
+        When ``ctx.pop()`` is executed in the above example, the teardown
+        functions are called just before the request context moves from the
+        stack of active contexts.  This becomes relevant if you are using
+        such constructs in tests.
+
+        Teardown functions must avoid raising exceptions, since they . If they
+        execute code that might fail they
+        will have to surround the execution of these code by try/except
+        statements and log occurring errors.
+
+        When a teardown function was called because of an exception it will
+        be passed an error object.
+
+        The return values of teardown functions are ignored.
+
+        .. admonition:: Debug Note
+
+           In debug mode Flask will not tear down a request on an exception
+           immediately.  Instead it will keep it alive so that the interactive
+           debugger can still access it.  This behavior can be controlled
+           by the ``PRESERVE_CONTEXT_ON_EXCEPTION`` configuration variable.
+        
+Registers a template context processor function.
+Register a URL value preprocessor function for all view
+        functions in the application. These functions will be called before the
+        :meth:`before_request` functions.
+
+        The function can modify the values captured from the matched url before
+        they are passed to the view. For example, this can be used to pop a
+        common language code value and place it in ``g`` rather than pass it to
+        every view.
+
+        The function is passed the endpoint name and values dict. The return
+        value is ignored.
+        
+Callback function for URL defaults for all view functions of the
+        application.  It's called with the endpoint and values and should
+        update the values passed in place.
+        
+Register a function to handle errors by code or exception class.
+
+        A decorator that is used to register a function given an
+        error code.  Example::
+
+            @app.errorhandler(404)
+            def page_not_found(error):
+                return 'This page does not exist', 404
+
+        You can also register handlers for arbitrary exceptions::
+
+            @app.errorhandler(DatabaseError)
+            def special_exception_handler(error):
+                return 'Database connection failed', 500
+
+        .. versionadded:: 0.7
+            Use :meth:`register_error_handler` instead of modifying
+            :attr:`error_handler_spec` directly, for application wide error
+            handlers.
+
+        .. versionadded:: 0.7
+           One can now additionally also register custom exception types
+           that do not necessarily have to be a subclass of the
+           :class:`~werkzeug.exceptions.HTTPException` class.
+
+        :param code_or_exception: the code as integer for the handler, or
+                                  an arbitrary exception
+        
+Alternative error attach function to the :meth:`errorhandler`
+        decorator that is more straightforward to use for non decorator
+        usage.
+
+        .. versionadded:: 0.7
+        
+Get the exception class being handled. For HTTP status codes
+        or ``HTTPException`` subclasses, return both the exception and
+        status code.
+
+        :param exc_class_or_code: Any exception class, or an HTTP status
+            code as an integer.
+        
+Internal helper that returns the default endpoint for a given
+    function.  This always is the function name.
+    
+Find the root path of a package, or the path that contains a
+    module. If it cannot be found, returns the current working
+    directory.
+
+    Not to be confused with the value returned by :func:`find_package`.
+
+    :meta private:
+    
+Attempt to figure out if the given name is a package or a module.
+
+    :param: loader: The loader that handled the name.
+    :param mod_name: The name of the package or module.
+    
+Find the path that contains the package or module.
+Find the prefix that a package is installed under, and the path
+    that it would be imported from.
+
+    The prefix is the directory containing the standard directory
+    hierarchy (lib, bin, etc.). If the package is not installed to the
+    system (:attr:`sys.prefix`) or a virtualenv (``site-packages``),
+    ``None`` is returned.
+
+    The path is the entry in :attr:`sys.path` that contains the package
+    for import. If the package is not installed, it's assumed that the
+    package was imported from the current working directory.
+    
+\
+Working outside of request context.
+
+This typically means that you attempted to use functionality that needed
+an active HTTP request.  Consult the documentation on testing for
+information about how to avoid this problem.\
+
+\
+Working outside of application context.
+
+This typically means that you attempted to use functionality that needed
+to interface with the current application object in some way. To solve
+this, set up an application context with app.app_context().  See the
+documentation for more information.\
+
+Expands a basic dictionary with session attributes.
+This reflects the ``'_permanent'`` key in the dict.
+Base class for sessions based on signed cookies.
+
+    This session backend will set the :attr:`modified` and
+    :attr:`accessed` attributes. It cannot reliably track whether a
+    session is new (vs. empty), so :attr:`new` remains hard coded to
+    ``False``.
+    
+Class used to generate nicer error messages if sessions are not
+    available.  Will still allow read-only access to the empty session
+    but fail on setting.
+    
+The basic interface you have to implement in order to replace the
+    default session interface which uses werkzeug's securecookie
+    implementation.  The only methods you have to implement are
+    :meth:`open_session` and :meth:`save_session`, the others have
+    useful defaults which you don't need to change.
+
+    The session object returned by the :meth:`open_session` method has to
+    provide a dictionary like interface plus the properties and methods
+    from the :class:`SessionMixin`.  We recommend just subclassing a dict
+    and adding that mixin::
+
+        class Session(dict, SessionMixin):
+            pass
+
+    If :meth:`open_session` returns ``None`` Flask will call into
+    :meth:`make_null_session` to create a session that acts as replacement
+    if the session support cannot work because some requirement is not
+    fulfilled.  The default :class:`NullSession` class that is created
+    will complain that the secret key was not set.
+
+    To replace the session interface on an application all you have to do
+    is to assign :attr:`flask.Flask.session_interface`::
+
+        app = Flask(__name__)
+        app.session_interface = MySessionInterface()
+
+    .. versionadded:: 0.8
+    
+Creates a null session which acts as a replacement object if the
+        real session support could not be loaded due to a configuration
+        error.  This mainly aids the user experience because the job of the
+        null session is to still support lookup without complaining but
+        modifications are answered with a helpful error message of what
+        failed.
+
+        This creates an instance of :attr:`null_session_class` by default.
+        
+Checks if a given object is a null session.  Null sessions are
+        not asked to be saved.
+
+        This checks if the object is an instance of :attr:`null_session_class`
+        by default.
+        
+Returns the name of the session cookie.
+
+        Uses ``app.session_cookie_name`` which is set to ``SESSION_COOKIE_NAME``
+        
+Returns the domain that should be set for the session cookie.
+
+        Uses ``SESSION_COOKIE_DOMAIN`` if it is configured, otherwise
+        falls back to detecting the domain based on ``SERVER_NAME``.
+
+        Once detected (or if not set at all), ``SESSION_COOKIE_DOMAIN`` is
+        updated to avoid re-running the logic.
+        
+Returns the path for which the cookie should be valid.  The
+        default implementation uses the value from the ``SESSION_COOKIE_PATH``
+        config var if it's set, and falls back to ``APPLICATION_ROOT`` or
+        uses ``/`` if it's ``None``.
+        
+Returns True if the session cookie should be httponly.  This
+        currently just returns the value of the ``SESSION_COOKIE_HTTPONLY``
+        config var.
+        
+Returns True if the cookie should be secure.  This currently
+        just returns the value of the ``SESSION_COOKIE_SECURE`` setting.
+        
+Return ``'Strict'`` or ``'Lax'`` if the cookie should use the
+        ``SameSite`` attribute. This currently just returns the value of
+        the :data:`SESSION_COOKIE_SAMESITE` setting.
+        
+A helper method that returns an expiration date for the session
+        or ``None`` if the session is linked to the browser session.  The
+        default implementation returns now + the permanent session
+        lifetime configured on the application.
+        
+Used by session backends to determine if a ``Set-Cookie`` header
+        should be set for this session cookie for this response. If the session
+        has been modified, the cookie is set. If the session is permanent and
+        the ``SESSION_REFRESH_EACH_REQUEST`` config is true, the cookie is
+        always set.
+
+        This check is usually skipped if the session was deleted.
+
+        .. versionadded:: 0.11
+        
+This method has to be implemented and must either return ``None``
+        in case the loading failed because of a configuration error or an
+        instance of a session object which implements a dictionary like
+        interface + the methods and attributes on :class:`SessionMixin`.
+        
+This is called for actual sessions returned by :meth:`open_session`
+        at the end of the request.  This is still called during a request
+        context so if you absolutely need access to the request you can do
+        that.
+        
+The default session interface that stores sessions in signed cookies
+    through the :mod:`itsdangerous` module.
+    
+Makes an attribute forward to the config
+Works exactly like a dict but provides ways to fill it from files
+    or special dictionaries.  There are two common patterns to populate the
+    config.
+
+    Either you can fill the config from a config file::
+
+        app.config.from_pyfile('yourconfig.cfg')
+
+    Or alternatively you can define the configuration options in the
+    module that calls :meth:`from_object` or provide an import path to
+    a module that should be loaded.  It is also possible to tell it to
+    use the same module and with that provide the configuration values
+    just before the call::
+
+        DEBUG = True
+        SECRET_KEY = 'development key'
+        app.config.from_object(__name__)
+
+    In both cases (loading from any Python file or loading from modules),
+    only uppercase keys are added to the config.  This makes it possible to use
+    lowercase values in the config file for temporary values that are not added
+    to the config or to define the config keys in the same file that implements
+    the application.
+
+    Probably the most interesting way to load configurations is from an
+    environment variable pointing to a file::
+
+        app.config.from_envvar('YOURAPPLICATION_SETTINGS')
+
+    In this case before launching the application you have to set this
+    environment variable to the file you want to use.  On Linux and OS X
+    use the export statement::
+
+        export YOURAPPLICATION_SETTINGS='/path/to/config/file'
+
+    On windows use `set` instead.
+
+    :param root_path: path to which files are read relative from.  When the
+                      config object is created by the application, this is
+                      the application's :attr:`~flask.Flask.root_path`.
+    :param defaults: an optional dictionary of default values
+    
+Loads a configuration from an environment variable pointing to
+        a configuration file.  This is basically just a shortcut with nicer
+        error messages for this line of code::
+
+            app.config.from_pyfile(os.environ['YOURAPPLICATION_SETTINGS'])
+
+        :param variable_name: name of the environment variable
+        :param silent: set to ``True`` if you want silent failure for missing
+                       files.
+        :return: bool. ``True`` if able to load config, ``False`` otherwise.
+        
+Updates the values in the config from a Python file.  This function
+        behaves as if the file was imported as module with the
+        :meth:`from_object` function.
+
+        :param filename: the filename of the config.  This can either be an
+                         absolute filename or a filename relative to the
+                         root path.
+        :param silent: set to ``True`` if you want silent failure for missing
+                       files.
+
+        .. versionadded:: 0.7
+           `silent` parameter.
+        
+Updates the values from the given object.  An object can be of one
+        of the following two types:
+
+        -   a string: in this case the object with that name will be imported
+        -   an actual object reference: that object is used directly
+
+        Objects are usually either modules or classes. :meth:`from_object`
+        loads only the uppercase attributes of the module/class. A ``dict``
+        object will not work with :meth:`from_object` because the keys of a
+        ``dict`` are not attributes of the ``dict`` class.
+
+        Example of module-based configuration::
+
+            app.config.from_object('yourapplication.default_config')
+            from yourapplication import default_config
+            app.config.from_object(default_config)
+
+        Nothing is done to the object before loading. If the object is a
+        class and has ``@property`` attributes, it needs to be
+        instantiated before being passed to this method.
+
+        You should not use this function to load the actual configuration but
+        rather configuration defaults.  The actual config should be loaded
+        with :meth:`from_pyfile` and ideally from a location not within the
+        package because the package might be installed system wide.
+
+        See :ref:`config-dev-prod` for an example of class-based configuration
+        using :meth:`from_object`.
+
+        :param obj: an import name or object
+        
+Update the values in the config from a file that is loaded
+        using the ``load`` parameter. The loaded data is passed to the
+        :meth:`from_mapping` method.
+
+        .. code-block:: python
+
+            import toml
+            app.config.from_file("config.toml", load=toml.load)
+
+        :param filename: The path to the data file. This can be an
+            absolute path or relative to the config root path.
+        :param load: A callable that takes a file handle and returns a
+            mapping of loaded data from the file.
+        :type load: ``Callable[[Reader], Mapping]`` where ``Reader``
+            implements a ``read`` method.
+        :param silent: Ignore the file if it doesn't exist.
+
+        .. versionadded:: 2.0
+        
+Updates the config like :meth:`update` ignoring items with non-upper
+        keys.
+
+        .. versionadded:: 0.11
+        
+Returns a dictionary containing a subset of configuration options
+        that match the specified namespace/prefix. Example usage::
+
+            app.config['IMAGE_STORE_TYPE'] = 'fs'
+            app.config['IMAGE_STORE_PATH'] = '/var/app/images'
+            app.config['IMAGE_STORE_BASE_URL'] = 'http://img.website.com'
+            image_store_config = app.config.get_namespace('IMAGE_STORE_')
+
+        The resulting dictionary `image_store_config` would look like::
+
+            {
+                'type': 'fs',
+                'path': '/var/app/images',
+                'base_url': 'http://img.website.com'
+            }
+
+        This is often useful when configuration options map directly to
+        keyword arguments in functions or class constructors.
+
+        :param namespace: a configuration namespace
+        :param lowercase: a flag indicating if the keys of the resulting
+                          dictionary should be lowercase
+        :param trim_namespace: a flag indicating if the keys of the resulting
+                          dictionary should not include the namespace
+
+        .. versionadded:: 0.11
+        
+Raised if an application cannot be found or loaded.
+Given a module instance this tries to find the best possible
+    application in the module or raises an exception.
+    
+Takes an app factory, a ``script_info` object and  optionally a tuple
+    of arguments. Checks for the existence of a script_info argument and calls
+    the app_factory depending on that and the arguments provided.
+    
+Check whether calling a function raised a ``TypeError`` because
+    the call failed or because something in the factory raised the
+    error.
+
+    :param f: The function that was called.
+    :return: ``True`` if the call failed.
+    
+Check if the given string is a variable name or a function. Call
+    a function to get the app instance, or return the variable directly.
+    
+Given a filename this will try to calculate the python path, add it
+    to the search path and return the actual module name that is expected.
+    
+Special application that dispatches to a Flask application which
+    is imported by name in a background thread.  If an error happens
+    it is recorded and shown as part of the WSGI handling which in case
+    of the Werkzeug debugger means that it shows up in the browser.
+    
+Helper object to deal with Flask applications.  This is usually not
+    necessary to interface with as it's used internally in the dispatching
+    to click.  In future versions of Flask this object will most likely play
+    a bigger role.  Typically it's created automatically by the
+    :class:`FlaskGroup` but you can also manually create it and pass it
+    onwards as click object.
+    
+Loads the Flask app (if not yet loaded) and returns it.  Calling
+        this multiple times will just result in the already loaded app to
+        be returned.
+        
+Wraps a callback so that it's guaranteed to be executed with the
+    script's application context.  If callbacks are registered directly
+    to the ``app.cli`` object then they are wrapped with this function
+    by default unless it's disabled.
+    
+This works similar to a regular click :class:`~click.Group` but it
+    changes the behavior of the :meth:`command` decorator so that it
+    automatically wraps the functions in :func:`with_appcontext`.
+
+    Not to be confused with :class:`FlaskGroup`.
+    
+This works exactly like the method of the same name on a regular
+        :class:`click.Group` but it wraps callbacks in :func:`with_appcontext`
+        unless it's disabled by passing ``with_appcontext=False``.
+        
+This works exactly like the method of the same name on a regular
+        :class:`click.Group` but it defaults the group class to
+        :class:`AppGroup`.
+        
+Special subclass of the :class:`AppGroup` group that supports
+    loading more commands from the configured Flask app.  Normally a
+    developer does not have to interface with this class but there are
+    some very advanced use cases for which it makes sense to create an
+    instance of this. see :ref:`custom-scripts`.
+
+    :param add_default_commands: if this is True then the default run and
+        shell commands will be added.
+    :param add_version_option: adds the ``--version`` option.
+    :param create_app: an optional callback that is passed the script info and
+        returns the loaded app.
+    :param load_dotenv: Load the nearest :file:`.env` and :file:`.flaskenv`
+        files to set environment variables. Will also change the working
+        directory to the directory containing the first file found.
+    :param set_debug_flag: Set the app's debug flag based on the active
+        environment
+
+    .. versionchanged:: 1.0
+        If installed, python-dotenv will be used to load environment variables
+        from :file:`.env` and :file:`.flaskenv` files.
+    
+Take ``other`` and remove the length of ``path`` from it. Then join it
+    to ``path``. If it is the original value, ``path`` is an ancestor of
+    ``other``.
+Load "dotenv" files in order of precedence to set environment variables.
+
+    If an env var is already set it is not overwritten, so earlier files in the
+    list are preferred over later files.
+
+    This is a no-op if `python-dotenv`_ is not installed.
+
+    .. _python-dotenv: https://github.com/theskumar/python-dotenv#readme
+
+    :param path: Load the file at this location instead of searching.
+    :return: ``True`` if a file was loaded.
+
+    .. versionchanged:: 1.1.0
+        Returns ``False`` when python-dotenv is not installed, or when
+        the given path isn't a file.
+
+    .. versionchanged:: 2.0
+        When loading the env files, set the default encoding to UTF-8.
+
+    .. versionadded:: 1.0
+    
+Show extra startup messages the first time the server is run,
+    ignoring the reloader.
+    
+Click option type for the ``--cert`` option. Allows either an
+    existing file, the string ``'adhoc'``, or an import for a
+    :class:`~ssl.SSLContext` object.
+    
+The ``--key`` option must be specified when ``--cert`` is a file.
+    Modifies the ``cert`` param to be a ``(cert, key)`` pair if needed.
+    
+Click option type that accepts a list of values separated by the
+    OS's path separator (``:``, ``;`` on Windows). Each value is
+    validated as a :class:`click.Path` type.
+    
+Run a local development server.
+
+    This server is for development purposes only. It does not provide
+    the stability, security, or performance of production WSGI servers.
+
+    The reloader and debugger are enabled by default if
+    FLASK_ENV=development or FLASK_DEBUG=1.
+    
+Run an interactive Python shell in the context of a given
+    Flask application.  The application will populate the default
+    namespace of this shell according to its configuration.
+
+    This is useful for executing small snippets of management code
+    without having to manually configure the application.
+    
+Show all registered routes with endpoints and methods.
+\
+A general utility script for Flask applications.
+
+Provides commands from Flask, extensions, and the application. Loads the
+application defined in the FLASK_APP environment variable, or from a wsgi.py
+file. Setting the FLASK_ENV environment variable to 'development' will enable
+debug mode.
+
+\b
+  {prefix}{cmd} FLASK_APP=hello.py
+  {prefix}{cmd} FLASK_ENV=development
+  {prefix}flask run
+
+The request object used by default in Flask.  Remembers the
+    matched endpoint and view arguments.
+
+    It is what ends up as :class:`~flask.request`.  If you want to replace
+    the request object used you can subclass this and set
+    :attr:`~flask.Flask.request_class` to your subclass.
+
+    The request object is a :class:`~werkzeug.wrappers.Request` subclass and
+    provides all of the attributes Werkzeug defines plus a few Flask
+    specific ones.
+    
+Read-only view of the ``MAX_CONTENT_LENGTH`` config key.
+The endpoint that matched the request.  This in combination with
+        :attr:`view_args` can be used to reconstruct the same or a
+        modified URL.  If an exception happened when matching, this will
+        be ``None``.
+        
+The name of the current blueprint
+The response object that is used by default in Flask.  Works like the
+    response object from Werkzeug but is set to have an HTML mimetype by
+    default.  Quite often you don't have to create this object yourself because
+    :meth:`~flask.Flask.make_response` will take care of that for you.
+
+    If you want to replace the response object used you can subclass this and
+    set :attr:`~flask.Flask.response_class` to your subclass.
+
+    .. versionchanged:: 1.0
+        JSON support is added to the response, like the request. This is useful
+        when testing to get the test client response data as JSON.
+
+    .. versionchanged:: 1.0
+
+        Added :attr:`max_cookie_size`.
+    
+Read-only view of the :data:`MAX_COOKIE_SIZE` config key.
+
+        See :attr:`~werkzeug.wrappers.Response.max_cookie_size` in
+        Werkzeug's docs.
+        
+The flask object implements a WSGI application and acts as the central
+    object.  It is passed the name of the module or package of the
+    application.  Once it is created it will act as a central registry for
+    the view functions, the URL rules, template configuration and much more.
+
+    The name of the package is used to resolve resources from inside the
+    package or the folder the module is contained in depending on if the
+    package parameter resolves to an actual python package (a folder with
+    an :file:`__init__.py` file inside) or a standard module (just a ``.py`` file).
+
+    For more information about resource loading, see :func:`open_resource`.
+
+    Usually you create a :class:`Flask` instance in your main module or
+    in the :file:`__init__.py` file of your package like this::
+
+        from flask import Flask
+        app = Flask(__name__)
+
+    .. admonition:: About the First Parameter
+
+        The idea of the first parameter is to give Flask an idea of what
+        belongs to your application.  This name is used to find resources
+        on the filesystem, can be used by extensions to improve debugging
+        information and a lot more.
+
+        So it's important what you provide there.  If you are using a single
+        module, `__name__` is always the correct value.  If you however are
+        using a package, it's usually recommended to hardcode the name of
+        your package there.
+
+        For example if your application is defined in :file:`yourapplication/app.py`
+        you should create it with one of the two versions below::
+
+            app = Flask('yourapplication')
+            app = Flask(__name__.split('.')[0])
+
+        Why is that?  The application will work even with `__name__`, thanks
+        to how resources are looked up.  However it will make debugging more
+        painful.  Certain extensions can make assumptions based on the
+        import name of your application.  For example the Flask-SQLAlchemy
+        extension will look for the code in your application that triggered
+        an SQL query in debug mode.  If the import name is not properly set
+        up, that debugging information is lost.  (For example it would only
+        pick up SQL queries in `yourapplication.app` and not
+        `yourapplication.views.frontend`)
+
+    .. versionadded:: 0.7
+       The `static_url_path`, `static_folder`, and `template_folder`
+       parameters were added.
+
+    .. versionadded:: 0.8
+       The `instance_path` and `instance_relative_config` parameters were
+       added.
+
+    .. versionadded:: 0.11
+       The `root_path` parameter was added.
+
+    .. versionadded:: 1.0
+       The ``host_matching`` and ``static_host`` parameters were added.
+
+    .. versionadded:: 1.0
+       The ``subdomain_matching`` parameter was added. Subdomain
+       matching needs to be enabled manually now. Setting
+       :data:`SERVER_NAME` does not implicitly enable it.
+
+    :param import_name: the name of the application package
+    :param static_url_path: can be used to specify a different path for the
+                            static files on the web.  Defaults to the name
+                            of the `static_folder` folder.
+    :param static_folder: The folder with static files that is served at
+        ``static_url_path``. Relative to the application ``root_path``
+        or an absolute path. Defaults to ``'static'``.
+    :param static_host: the host to use when adding the static route.
+        Defaults to None. Required when using ``host_matching=True``
+        with a ``static_folder`` configured.
+    :param host_matching: set ``url_map.host_matching`` attribute.
+        Defaults to False.
+    :param subdomain_matching: consider the subdomain relative to
+        :data:`SERVER_NAME` when matching routes. Defaults to False.
+    :param template_folder: the folder that contains the templates that should
+                            be used by the application.  Defaults to
+                            ``'templates'`` folder in the root path of the
+                            application.
+    :param instance_path: An alternative instance path for the application.
+                          By default the folder ``'instance'`` next to the
+                          package or module is assumed to be the instance
+                          path.
+    :param instance_relative_config: if set to ``True`` relative filenames
+                                     for loading the config are assumed to
+                                     be relative to the instance path instead
+                                     of the application root.
+    :param root_path: The path to the root of the application files.
+        This should only be set manually when it can't be detected
+        automatically, such as for namespace packages.
+    
+The name of the application.  This is usually the import name
+        with the difference that it's guessed from the run file if the
+        import name is main.  This name is used as a display name when
+        Flask needs the name of the application.  It can be set and overridden
+        to change the value.
+
+        .. versionadded:: 0.8
+        
+Returns the value of the ``PROPAGATE_EXCEPTIONS`` configuration
+        value in case it's set, otherwise a sensible default is returned.
+
+        .. versionadded:: 0.7
+        
+Returns the value of the ``PRESERVE_CONTEXT_ON_EXCEPTION``
+        configuration value in case it's set, otherwise a sensible default
+        is returned.
+
+        .. versionadded:: 0.7
+        
+A standard Python :class:`~logging.Logger` for the app, with
+        the same name as :attr:`name`.
+
+        In debug mode, the logger's :attr:`~logging.Logger.level` will
+        be set to :data:`~logging.DEBUG`.
+
+        If there are no handlers configured, a default handler will be
+        added. See :doc:`/logging` for more information.
+
+        .. versionchanged:: 1.1.0
+            The logger takes the same name as :attr:`name` rather than
+            hard-coding ``"flask.app"``.
+
+        .. versionchanged:: 1.0.0
+            Behavior was simplified. The logger is always named
+            ``"flask.app"``. The level is only set during configuration,
+            it doesn't check ``app.debug`` each time. Only one format is
+            used, not different ones depending on ``app.debug``. No
+            handlers are removed, and a handler is only added if no
+            handlers are already configured.
+
+        .. versionadded:: 0.3
+        
+The Jinja environment used to load templates.
+
+        The environment is created the first time this property is
+        accessed. Changing :attr:`jinja_options` after that will have no
+        effect.
+        
+This attribute is set to ``True`` if the application started
+        handling the first request.
+
+        .. versionadded:: 0.8
+        
+Used to create the config attribute by the Flask constructor.
+        The `instance_relative` parameter is passed in from the constructor
+        of Flask (there named `instance_relative_config`) and indicates if
+        the config should be relative to the instance path or the root path
+        of the application.
+
+        .. versionadded:: 0.8
+        
+Tries to locate the instance path if it was not provided to the
+        constructor of the application class.  It will basically calculate
+        the path to a folder named ``instance`` next to your main file or
+        the package.
+
+        .. versionadded:: 0.8
+        
+Opens a resource from the application's instance folder
+        (:attr:`instance_path`).  Otherwise works like
+        :meth:`open_resource`.  Instance resources can also be opened for
+        writing.
+
+        :param resource: the name of the resource.  To access resources within
+                         subfolders use forward slashes as separator.
+        :param mode: resource file opening mode, default is 'rb'.
+        
+Reload templates when they are changed. Used by
+        :meth:`create_jinja_environment`.
+
+        This attribute can be configured with :data:`TEMPLATES_AUTO_RELOAD`. If
+        not set, it will be enabled in debug mode.
+
+        .. versionadded:: 1.0
+            This property was added but the underlying config and behavior
+            already existed.
+        
+Create the Jinja environment based on :attr:`jinja_options`
+        and the various Jinja-related methods of the app. Changing
+        :attr:`jinja_options` after this will have no effect. Also adds
+        Flask-related globals and filters to the environment.
+
+        .. versionchanged:: 0.11
+           ``Environment.auto_reload`` set in accordance with
+           ``TEMPLATES_AUTO_RELOAD`` configuration option.
+
+        .. versionadded:: 0.5
+        
+Creates the loader for the Jinja2 environment.  Can be used to
+        override just the loader and keeping the rest unchanged.  It's
+        discouraged to override this function.  Instead one should override
+        the :meth:`jinja_loader` function instead.
+
+        The global loader dispatches between the loaders of the application
+        and the individual blueprints.
+
+        .. versionadded:: 0.7
+        
+Returns ``True`` if autoescaping should be active for the given
+        template name. If no template name is given, returns `True`.
+
+        .. versionadded:: 0.5
+        
+Update the template context with some commonly used variables.
+        This injects request, session, config and g into the template
+        context as well as everything template context processors want
+        to inject.  Note that the as of Flask 0.6, the original values
+        in the context will not be overridden if a context processor
+        decides to return a value with the same key.
+
+        :param context: the context as a dictionary that is updated in place
+                        to add extra variables.
+        
+Returns the shell context for an interactive shell for this
+        application.  This runs all the registered shell context
+        processors.
+
+        .. versionadded:: 0.11
+        
+Whether debug mode is enabled. When using ``flask run`` to start
+        the development server, an interactive debugger will be shown for
+        unhandled exceptions, and the server will be reloaded when code
+        changes. This maps to the :data:`DEBUG` config key. This is
+        enabled when :attr:`env` is ``'development'`` and is overridden
+        by the ``FLASK_DEBUG`` environment variable. It may not behave as
+        expected if set in code.
+
+        **Do not enable debug mode when deploying in production.**
+
+        Default: ``True`` if :attr:`env` is ``'development'``, or
+        ``False`` otherwise.
+        
+Runs the application on a local development server.
+
+        Do not use ``run()`` in a production setting. It is not intended to
+        meet security and performance requirements for a production server.
+        Instead, see :doc:`/deploying/index` for WSGI server recommendations.
+
+        If the :attr:`debug` flag is set the server will automatically reload
+        for code changes and show a debugger in case an exception happened.
+
+        If you want to run the application in debug mode, but disable the
+        code execution on the interactive debugger, you can pass
+        ``use_evalex=False`` as parameter.  This will keep the debugger's
+        traceback screen active, but disable code execution.
+
+        It is not recommended to use this function for development with
+        automatic reloading as this is badly supported.  Instead you should
+        be using the :command:`flask` command line script's ``run`` support.
+
+        .. admonition:: Keep in Mind
+
+           Flask will suppress any server error with a generic error page
+           unless it is in debug mode.  As such to enable just the
+           interactive debugger without the code reloading, you have to
+           invoke :meth:`run` with ``debug=True`` and ``use_reloader=False``.
+           Setting ``use_debugger`` to ``True`` without being in debug mode
+           won't catch any exceptions because there won't be any to
+           catch.
+
+        :param host: the hostname to listen on. Set this to ``'0.0.0.0'`` to
+            have the server available externally as well. Defaults to
+            ``'127.0.0.1'`` or the host in the ``SERVER_NAME`` config variable
+            if present.
+        :param port: the port of the webserver. Defaults to ``5000`` or the
+            port defined in the ``SERVER_NAME`` config variable if present.
+        :param debug: if given, enable or disable debug mode. See
+            :attr:`debug`.
+        :param load_dotenv: Load the nearest :file:`.env` and :file:`.flaskenv`
+            files to set environment variables. Will also change the working
+            directory to the directory containing the first file found.
+        :param options: the options to be forwarded to the underlying Werkzeug
+            server. See :func:`werkzeug.serving.run_simple` for more
+            information.
+
+        .. versionchanged:: 1.0
+            If installed, python-dotenv will be used to load environment
+            variables from :file:`.env` and :file:`.flaskenv` files.
+
+            If set, the :envvar:`FLASK_ENV` and :envvar:`FLASK_DEBUG`
+            environment variables will override :attr:`env` and
+            :attr:`debug`.
+
+            Threaded mode is enabled by default.
+
+        .. versionchanged:: 0.10
+            The default port is now picked from the ``SERVER_NAME``
+            variable.
+        
+Creates a test client for this application.  For information
+        about unit testing head over to :doc:`/testing`.
+
+        Note that if you are testing for assertions or exceptions in your
+        application code, you must set ``app.testing = True`` in order for the
+        exceptions to propagate to the test client.  Otherwise, the exception
+        will be handled by the application (not visible to the test client) and
+        the only indication of an AssertionError or other exception will be a
+        500 status code response to the test client.  See the :attr:`testing`
+        attribute.  For example::
+
+            app.testing = True
+            client = app.test_client()
+
+        The test client can be used in a ``with`` block to defer the closing down
+        of the context until the end of the ``with`` block.  This is useful if
+        you want to access the context locals for testing::
+
+            with app.test_client() as c:
+                rv = c.get('/?vodka=42')
+                assert request.args['vodka'] == '42'
+
+        Additionally, you may pass optional keyword arguments that will then
+        be passed to the application's :attr:`test_client_class` constructor.
+        For example::
+
+            from flask.testing import FlaskClient
+
+            class CustomClient(FlaskClient):
+                def __init__(self, *args, **kwargs):
+                    self._authentication = kwargs.pop("authentication")
+                    super(CustomClient,self).__init__( *args, **kwargs)
+
+            app.test_client_class = CustomClient
+            client = app.test_client(authentication='Basic ....')
+
+        See :class:`~flask.testing.FlaskClient` for more information.
+
+        .. versionchanged:: 0.4
+           added support for ``with`` block usage for the client.
+
+        .. versionadded:: 0.7
+           The `use_cookies` parameter was added as well as the ability
+           to override the client to be used by setting the
+           :attr:`test_client_class` attribute.
+
+        .. versionchanged:: 0.11
+           Added `**kwargs` to support passing additional keyword arguments to
+           the constructor of :attr:`test_client_class`.
+        
+Create a CLI runner for testing CLI commands.
+        See :ref:`testing-cli`.
+
+        Returns an instance of :attr:`test_cli_runner_class`, by default
+        :class:`~flask.testing.FlaskCliRunner`. The Flask app object is
+        passed as the first argument.
+
+        .. versionadded:: 1.0
+        
+Register a :class:`~flask.Blueprint` on the application. Keyword
+        arguments passed to this method will override the defaults set on the
+        blueprint.
+
+        Calls the blueprint's :meth:`~flask.Blueprint.register` method after
+        recording the blueprint in the application's :attr:`blueprints`.
+
+        :param blueprint: The blueprint to register.
+        :param url_prefix: Blueprint routes will be prefixed with this.
+        :param subdomain: Blueprint routes will match on this subdomain.
+        :param url_defaults: Blueprint routes will use these default values for
+            view arguments.
+        :param options: Additional keyword arguments are passed to
+            :class:`~flask.blueprints.BlueprintSetupState`. They can be
+            accessed in :meth:`~flask.Blueprint.record` callbacks.
+
+        .. versionadded:: 0.7
+        
+Iterates over all blueprints by the order they were registered.
+
+        .. versionadded:: 0.11
+        
+A decorator that is used to register custom template filter.
+        You can specify a name for the filter, otherwise the function
+        name will be used. Example::
+
+          @app.template_filter()
+          def reverse(s):
+              return s[::-1]
+
+        :param name: the optional name of the filter, otherwise the
+                     function name will be used.
+        
+Register a custom template filter.  Works exactly like the
+        :meth:`template_filter` decorator.
+
+        :param name: the optional name of the filter, otherwise the
+                     function name will be used.
+        
+A decorator that is used to register custom template test.
+        You can specify a name for the test, otherwise the function
+        name will be used. Example::
+
+          @app.template_test()
+          def is_prime(n):
+              if n == 2:
+                  return True
+              for i in range(2, int(math.ceil(math.sqrt(n))) + 1):
+                  if n % i == 0:
+                      return False
+              return True
+
+        .. versionadded:: 0.10
+
+        :param name: the optional name of the test, otherwise the
+                     function name will be used.
+        
+Register a custom template test.  Works exactly like the
+        :meth:`template_test` decorator.
+
+        .. versionadded:: 0.10
+
+        :param name: the optional name of the test, otherwise the
+                     function name will be used.
+        
+A decorator that is used to register a custom template global function.
+        You can specify a name for the global function, otherwise the function
+        name will be used. Example::
+
+            @app.template_global()
+            def double(n):
+                return 2 * n
+
+        .. versionadded:: 0.10
+
+        :param name: the optional name of the global function, otherwise the
+                     function name will be used.
+        
+Register a custom template global function. Works exactly like the
+        :meth:`template_global` decorator.
+
+        .. versionadded:: 0.10
+
+        :param name: the optional name of the global function, otherwise the
+                     function name will be used.
+        
+Registers a function to be run before the first request to this
+        instance of the application.
+
+        The function will be called without any arguments and its return
+        value is ignored.
+
+        .. versionadded:: 0.8
+        
+Registers a function to be called when the application context
+        ends.  These functions are typically also called when the request
+        context is popped.
+
+        Example::
+
+            ctx = app.app_context()
+            ctx.push()
+            ...
+            ctx.pop()
+
+        When ``ctx.pop()`` is executed in the above example, the teardown
+        functions are called just before the app context moves from the
+        stack of active contexts.  This becomes relevant if you are using
+        such constructs in tests.
+
+        Since a request context typically also manages an application
+        context it would also be called when you pop a request context.
+
+        When a teardown function was called because of an unhandled exception
+        it will be passed an error object. If an :meth:`errorhandler` is
+        registered, it will handle the exception and the teardown will not
+        receive it.
+
+        The return values of teardown functions are ignored.
+
+        .. versionadded:: 0.9
+        
+Registers a shell context processor function.
+
+        .. versionadded:: 0.11
+        
+Return a registered error handler for an exception in this order:
+        blueprint handler for a specific code, app handler for a specific code,
+        blueprint handler for an exception class, app handler for an exception
+        class, or ``None`` if a suitable handler is not found.
+        
+Handles an HTTP exception.  By default this will invoke the
+        registered error handlers and fall back to returning the
+        exception as response.
+
+        .. versionchanged:: 1.0.3
+            ``RoutingException``, used internally for actions such as
+             slash redirects during routing, is not passed to error
+             handlers.
+
+        .. versionchanged:: 1.0
+            Exceptions are looked up by code *and* by MRO, so
+            ``HTTPExcpetion`` subclasses can be handled with a catch-all
+            handler for the base ``HTTPException``.
+
+        .. versionadded:: 0.3
+        
+Checks if an HTTP exception should be trapped or not.  By default
+        this will return ``False`` for all exceptions except for a bad request
+        key error if ``TRAP_BAD_REQUEST_ERRORS`` is set to ``True``.  It
+        also returns ``True`` if ``TRAP_HTTP_EXCEPTIONS`` is set to ``True``.
+
+        This is called for all HTTP exceptions raised by a view function.
+        If it returns ``True`` for any exception the error handler for this
+        exception is not called and it shows up as regular exception in the
+        traceback.  This is helpful for debugging implicitly raised HTTP
+        exceptions.
+
+        .. versionchanged:: 1.0
+            Bad request errors are not trapped by default in debug mode.
+
+        .. versionadded:: 0.8
+        
+This method is called whenever an exception occurs that
+        should be handled. A special case is :class:`~werkzeug
+        .exceptions.HTTPException` which is forwarded to the
+        :meth:`handle_http_exception` method. This function will either
+        return a response value or reraise the exception with the same
+        traceback.
+
+        .. versionchanged:: 1.0
+            Key errors raised from request data like ``form`` show the
+            bad key in debug mode rather than a generic bad request
+            message.
+
+        .. versionadded:: 0.7
+        
+Handle an exception that did not have an error handler
+        associated with it, or that was raised from an error handler.
+        This always causes a 500 ``InternalServerError``.
+
+        Always sends the :data:`got_request_exception` signal.
+
+        If :attr:`propagate_exceptions` is ``True``, such as in debug
+        mode, the error will be re-raised so that the debugger can
+        display it. Otherwise, the original exception is logged, and
+        an :exc:`~werkzeug.exceptions.InternalServerError` is returned.
+
+        If an error handler is registered for ``InternalServerError`` or
+        ``500``, it will be used. For consistency, the handler will
+        always receive the ``InternalServerError``. The original
+        unhandled exception is available as ``e.original_exception``.
+
+        .. versionchanged:: 1.1.0
+            Always passes the ``InternalServerError`` instance to the
+            handler, setting ``original_exception`` to the unhandled
+            error.
+
+        .. versionchanged:: 1.1.0
+            ``after_request`` functions and other finalization is done
+            even for the default 500 response when there is no handler.
+
+        .. versionadded:: 0.3
+        
+Logs an exception.  This is called by :meth:`handle_exception`
+        if debugging is disabled and right before the handler is called.
+        The default implementation logs the exception as error on the
+        :attr:`logger`.
+
+        .. versionadded:: 0.8
+        
+Exceptions that are recording during routing are reraised with
+        this method.  During debug we are not reraising redirect requests
+        for non ``GET``, ``HEAD``, or ``OPTIONS`` requests and we're raising
+        a different error instead to help debug situations.
+
+        :internal:
+        
+Does the request dispatching.  Matches the URL and returns the
+        return value of the view or error handler.  This does not have to
+        be a response object.  In order to convert the return value to a
+        proper response object, call :func:`make_response`.
+
+        .. versionchanged:: 0.7
+           This no longer does the exception handling, this code was
+           moved to the new :meth:`full_dispatch_request`.
+        
+Dispatches the request and on top of that performs request
+        pre and postprocessing as well as HTTP exception catching and
+        error handling.
+
+        .. versionadded:: 0.7
+        
+Given the return value from a view function this finalizes
+        the request by converting it into a response and invoking the
+        postprocessing functions.  This is invoked for both normal
+        request dispatching as well as error handlers.
+
+        Because this means that it might be called as a result of a
+        failure a special safe mode is available which can be enabled
+        with the `from_error_handler` flag.  If enabled, failures in
+        response processing will be logged and otherwise ignored.
+
+        :internal:
+        
+Called before each request and will ensure that it triggers
+        the :attr:`before_first_request_funcs` and only exactly once per
+        application instance (which means process usually).
+
+        :internal:
+        
+This method is called to create the default ``OPTIONS`` response.
+        This can be changed through subclassing to change the default
+        behavior of ``OPTIONS`` responses.
+
+        .. versionadded:: 0.7
+        
+This is called to figure out if an error should be ignored
+        or not as far as the teardown system is concerned.  If this
+        function returns ``True`` then the teardown handlers will not be
+        passed the error.
+
+        .. versionadded:: 0.10
+        
+Convert the return value from a view function to an instance of
+        :attr:`response_class`.
+
+        :param rv: the return value from the view function. The view function
+            must return a response. Returning ``None``, or the view ending
+            without returning, is not allowed. The following types are allowed
+            for ``view_rv``:
+
+            ``str``
+                A response object is created with the string encoded to UTF-8
+                as the body.
+
+            ``bytes``
+                A response object is created with the bytes as the body.
+
+            ``dict``
+                A dictionary that will be jsonify'd before being returned.
+
+            ``tuple``
+                Either ``(body, status, headers)``, ``(body, status)``, or
+                ``(body, headers)``, where ``body`` is any of the other types
+                allowed here, ``status`` is a string or an integer, and
+                ``headers`` is a dictionary or a list of ``(key, value)``
+                tuples. If ``body`` is a :attr:`response_class` instance,
+                ``status`` overwrites the exiting value and ``headers`` are
+                extended.
+
+            :attr:`response_class`
+                The object is returned unchanged.
+
+            other :class:`~werkzeug.wrappers.Response` class
+                The object is coerced to :attr:`response_class`.
+
+            :func:`callable`
+                The function is called as a WSGI application. The result is
+                used to create a response object.
+
+        .. versionchanged:: 0.9
+           Previously a tuple was interpreted as the arguments for the
+           response object.
+        
+Creates a URL adapter for the given request. The URL adapter
+        is created at a point where the request context is not yet set
+        up so the request is passed explicitly.
+
+        .. versionadded:: 0.6
+
+        .. versionchanged:: 0.9
+           This can now also be called without a request object when the
+           URL adapter is created for the application context.
+
+        .. versionchanged:: 1.0
+            :data:`SERVER_NAME` no longer implicitly enables subdomain
+            matching. Use :attr:`subdomain_matching` instead.
+        
+Injects the URL defaults for the given endpoint directly into
+        the values dictionary passed.  This is used internally and
+        automatically called on URL building.
+
+        .. versionadded:: 0.7
+        
+Handle :class:`~werkzeug.routing.BuildError` on
+        :meth:`url_for`.
+        
+Called before the request is dispatched. Calls
+        :attr:`url_value_preprocessors` registered with the app and the
+        current blueprint (if any). Then calls :attr:`before_request_funcs`
+        registered with the app and the blueprint.
+
+        If any :meth:`before_request` handler returns a non-None value, the
+        value is handled as if it was the return value from the view, and
+        further request handling is stopped.
+        
+Can be overridden in order to modify the response object
+        before it's sent to the WSGI server.  By default this will
+        call all the :meth:`after_request` decorated functions.
+
+        .. versionchanged:: 0.5
+           As of Flask 0.5 the functions registered for after request
+           execution are called in reverse order of registration.
+
+        :param response: a :attr:`response_class` object.
+        :return: a new response object or the same, has to be an
+                 instance of :attr:`response_class`.
+        
+Called after the request is dispatched and the response is
+        returned, right before the request context is popped.
+
+        This calls all functions decorated with
+        :meth:`teardown_request`, and :meth:`Blueprint.teardown_request`
+        if a blueprint handled the request. Finally, the
+        :data:`request_tearing_down` signal is sent.
+
+        This is called by
+        :meth:`RequestContext.pop() <flask.ctx.RequestContext.pop>`,
+        which may be delayed during testing to maintain access to
+        resources.
+
+        :param exc: An unhandled exception raised while dispatching the
+            request. Detected from the current exception information if
+            not passed. Passed to each teardown function.
+
+        .. versionchanged:: 0.9
+            Added the ``exc`` argument.
+        
+Called right before the application context is popped.
+
+        When handling a request, the application context is popped
+        after the request context. See :meth:`do_teardown_request`.
+
+        This calls all functions decorated with
+        :meth:`teardown_appcontext`. Then the
+        :data:`appcontext_tearing_down` signal is sent.
+
+        This is called by
+        :meth:`AppContext.pop() <flask.ctx.AppContext.pop>`.
+
+        .. versionadded:: 0.9
+        
+Create an :class:`~flask.ctx.AppContext`. Use as a ``with``
+        block to push the context, which will make :data:`current_app`
+        point at this application.
+
+        An application context is automatically pushed by
+        :meth:`RequestContext.push() <flask.ctx.RequestContext.push>`
+        when handling a request, and when running a CLI command. Use
+        this to manually create a context outside of these situations.
+
+        ::
+
+            with app.app_context():
+                init_db()
+
+        See :doc:`/appcontext`.
+
+        .. versionadded:: 0.9
+        
+Create a :class:`~flask.ctx.RequestContext` representing a
+        WSGI environment. Use a ``with`` block to push the context,
+        which will make :data:`request` point at this request.
+
+        See :doc:`/reqcontext`.
+
+        Typically you should not call this from your own code. A request
+        context is automatically pushed by the :meth:`wsgi_app` when
+        handling a request. Use :meth:`test_request_context` to create
+        an environment and context instead of this method.
+
+        :param environ: a WSGI environment
+        
+Create a :class:`~flask.ctx.RequestContext` for a WSGI
+        environment created from the given values. This is mostly useful
+        during testing, where you may want to run a function that uses
+        request data without dispatching a full request.
+
+        See :doc:`/reqcontext`.
+
+        Use a ``with`` block to push the context, which will make
+        :data:`request` point at the request for the created
+        environment. ::
+
+            with test_request_context(...):
+                generate_report()
+
+        When using the shell, it may be easier to push and pop the
+        context manually to avoid indentation. ::
+
+            ctx = app.test_request_context(...)
+            ctx.push()
+            ...
+            ctx.pop()
+
+        Takes the same arguments as Werkzeug's
+        :class:`~werkzeug.test.EnvironBuilder`, with some defaults from
+        the application. See the linked Werkzeug docs for most of the
+        available arguments. Flask-specific behavior is listed here.
+
+        :param path: URL path being requested.
+        :param base_url: Base URL where the app is being served, which
+            ``path`` is relative to. If not given, built from
+            :data:`PREFERRED_URL_SCHEME`, ``subdomain``,
+            :data:`SERVER_NAME`, and :data:`APPLICATION_ROOT`.
+        :param subdomain: Subdomain name to append to
+            :data:`SERVER_NAME`.
+        :param url_scheme: Scheme to use instead of
+            :data:`PREFERRED_URL_SCHEME`.
+        :param data: The request body, either as a string or a dict of
+            form keys and values.
+        :param json: If given, this is serialized as JSON and passed as
+            ``data``. Also defaults ``content_type`` to
+            ``application/json``.
+        :param args: other positional arguments passed to
+            :class:`~werkzeug.test.EnvironBuilder`.
+        :param kwargs: other keyword arguments passed to
+            :class:`~werkzeug.test.EnvironBuilder`.
+        
+The actual WSGI application. This is not implemented in
+        :meth:`__call__` so that middlewares can be applied without
+        losing a reference to the app object. Instead of doing this::
+
+            app = MyMiddleware(app)
+
+        It's a better idea to do this instead::
+
+            app.wsgi_app = MyMiddleware(app.wsgi_app)
+
+        Then you still have the original application object around and
+        can continue to call methods on it.
+
+        .. versionchanged:: 0.7
+            Teardown events for the request and app contexts are called
+            even if an unhandled error occurs. Other events may not be
+            called depending on when an error occurs during dispatch.
+            See :ref:`callbacks-and-errors`.
+
+        :param environ: A WSGI environment.
+        :param start_response: A callable accepting a status code,
+            a list of headers, and an optional exception context to
+            start the response.
+        
+The WSGI server calls the Flask application object as the
+        WSGI application. This calls :meth:`wsgi_app`, which can be
+        wrapped to apply middleware.
+        
+Raised in places where we want some better error reporting for
+    unexpected unicode or binary data.
+    
+Raised from request.files during debugging.  The idea is that it can
+    provide a better error message than just a generic KeyError/BadRequest.
+    
+This exception is raised by Flask in debug mode if it detects a
+    redirect caused by the routing system when the request method is not
+    GET, HEAD or OPTIONS.  Reasoning: form data will be dropped.
+    
+Since Flask 0.8 we're monkeypatching the files object in case a
+    request is detected that does not use multipart form data but the files
+    object is accessed.
+    
+This should help developers understand what failed
+Alternative way to use view functions.  A subclass has to implement
+    :meth:`dispatch_request` which is called with the view arguments from
+    the URL routing system.  If :attr:`methods` is provided the methods
+    do not have to be passed to the :meth:`~flask.Flask.add_url_rule`
+    method explicitly::
+
+        class MyView(View):
+            methods = ['GET']
+
+            def dispatch_request(self, name):
+                return f"Hello {name}!"
+
+        app.add_url_rule('/hello/<name>', view_func=MyView.as_view('myview'))
+
+    When you want to decorate a pluggable view you will have to either do that
+    when the view function is created (by wrapping the return value of
+    :meth:`as_view`) or you can use the :attr:`decorators` attribute::
+
+        class SecretView(View):
+            methods = ['GET']
+            decorators = [superuser_required]
+
+            def dispatch_request(self):
+                ...
+
+    The decorators stored in the decorators list are applied one after another
+    when the view function is created.  Note that you can *not* use the class
+    based decorators since those would decorate the view class and not the
+    generated view function!
+    
+Subclasses have to override this method to implement the
+        actual view function code.  This method is called with all
+        the arguments from the URL rule.
+        
+Converts the class into an actual view function that can be used
+        with the routing system.  Internally this generates a function on the
+        fly which will instantiate the :class:`View` on each request and call
+        the :meth:`dispatch_request` method on it.
+
+        The arguments passed to :meth:`as_view` are forwarded to the
+        constructor of the class.
+        
+Metaclass for :class:`MethodView` that determines what methods the view
+    defines.
+    
+A class-based view that dispatches request methods to the corresponding
+    class methods. For example, if you implement a ``get`` method, it will be
+    used to handle ``GET`` requests. ::
+
+        class CounterAPI(MethodView):
+            def get(self):
+                return session.get('counter', 0)
+
+            def post(self):
+                session['counter'] = session.get('counter', 0) + 1
+                return 'OK'
+
+        app.add_url_rule('/counter', view_func=CounterAPI.as_view('counter'))
+    

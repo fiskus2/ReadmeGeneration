@@ -1,0 +1,6 @@
+# Bleu scores calculated using https://github.com/vikasnar/Bleu
+
+Goldilocks1.txt - Goldilocks1.txt:     1.0
+Goldilocks1.txt - Goldilocks2.txt:     0.08
+US-Elections1.txt - US-Elections2.txt: 0.0
+Goldilocks1.txt - US-Elections2.txt:   0.0

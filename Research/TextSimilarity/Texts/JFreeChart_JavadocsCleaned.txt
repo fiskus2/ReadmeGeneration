@@ -1,0 +1,102 @@
+
+ Throws an IllegalArgumentException if the supplied 
+ param is null.
+ 
+ Sets the orientation for the plot and sends a PlotChangeEvent to
+ all registered listeners.
+ 
+ Sets the orientation for the plot and sends a PlotChangeEvent to
+ all registered listeners.
+ 
+ Creates a waterfall chart. The chart object returned by this method
+ uses a CategoryPlot instance as the plot, with a
+ CategoryAxis for the domain axis, a NumberAxis as the
+ range axis, and a WaterfallBarRenderer as the renderer.
+ 
+ Creates a scatter plot with default settings. The chart object
+ returned by this method uses an XYPlot instance as the plot,
+ with a NumberAxis for the domain axis, a NumberAxis
+ as the range axis, and an XYLineAndShapeRenderer as the
+ renderer.
+ 
+ Creates a bar chart. The chart object returned by this method uses a
+ CategoryPlot instance as the plot, with a CategoryAxis
+ for the domain axis, a NumberAxis as the range axis, and a
+ BarRenderer as the renderer.
+ 
+ Creates a histogram chart. This chart is constructed with an
+ XYPlot using an XYBarRenderer. The domain and range
+ axes are NumberAxis instances.
+ 
+ Creates a filled stepped XY plot with default settings.
+ 
+ Creates a stepped XY plot with default settings.
+ 
+ Creates and returns a default instance of an XY bar chart.
+ <P>
+ The chart object returned by this method uses an XYPlot instance
+ as the plot, with a DateAxis for the domain axis, a
+ NumberAxis as the range axis, and a XYBarRenderer as the
+ renderer.
+ 
+ Creates a line chart (based on an XYDataset) with default
+ settings.
+ 
+ Creates an area chart using an XYDataset.
+ <P>
+ The chart object returned by this method uses an XYPlot instance
+ as the plot, with a NumberAxis for the domain axis, a
+ NumberAxis as the range axis, and a XYAreaRenderer as
+ the renderer.
+ 
+ Creates a stacked XY area plot. The chart object returned by this
+ method uses an XYPlot instance as the plot, with a
+ NumberAxis for the domain axis, a NumberAxis as the
+ range axis, and a StackedXYAreaRenderer2 as the renderer.
+ 
+ Creates a bubble chart with default settings. The chart is composed of
+ an XYPlot, with a NumberAxis for the domain axis,
+ a NumberAxis for the range axis, and an XYBubbleRenderer
+ to draw the data items.
+ 
+ Creates a stacked area chart with default settings. The chart object
+ returned by this method uses a CategoryPlot instance as the
+ plot, with a CategoryAxis for the domain axis, a
+ NumberAxis as the range axis, and a StackedAreaRenderer
+ as the renderer.
+ 
+ Creates an area chart with default settings. The chart object returned
+ by this method uses a CategoryPlot instance as the plot, with a
+ CategoryAxis for the domain axis, a NumberAxis as the
+ range axis, and an AreaRenderer as the renderer.
+ 
+ Creates a new XYSeries containing the moving averages of one
+ series in the source dataset.
+ 
+ Creates a stacked bar chart with default settings. The chart object
+ returned by this method uses a CategoryPlot instance as the
+ plot, with a CategoryAxis for the domain axis, a
+ NumberAxis as the range axis, and a StackedBarRenderer
+ as the renderer.
+ 
+ Creates a line chart with default settings. The chart object returned
+ by this method uses a CategoryPlot instance as the plot, with a
+ CategoryAxis for the domain axis, a NumberAxis as the
+ range axis, and a LineAndShapeRenderer as the renderer.
+ 
+ Adds a data item to the series and, if requested, sends a
+ SeriesChangeEvent to all registered listeners.
+ 
+ Creates a chart that displays multiple pie plots. The chart object
+ returned by this method uses a MultiplePiePlot instance as the
+ plot.
+ 
+ Draws the category labels and returns the updated axis state.
+ 
+ Adds a new data item to the series and sends a SeriesChangeEvent
+ to all registered listeners.
+ 
+ Sets the range for the axis and sends a change event to all registered 
+ listeners. As a side-effect, the auto-range flag is set to
+ false.
+ 

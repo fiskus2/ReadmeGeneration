@@ -1,6 +1,13 @@
 # Bleu scores calculated using https://github.com/vikasnar/Bleu
 
+Geometric mean over n-grams with n=1...4
 Goldilocks1.txt - Goldilocks1.txt:     1.0
 Goldilocks1.txt - Goldilocks2.txt:     0.08
 US-Elections1.txt - US-Elections2.txt: 0.0
-Goldilocks1.txt - US-Elections2.txt:   0.0
+Goldilocks1.txt - US-Elections1.txt:   0.0
+
+Using only 1-grams:
+Goldilocks1.txt - Goldilocks1.txt:     1.0
+Goldilocks1.txt - Goldilocks2.txt:     0.39
+US-Elections1.txt - US-Elections2.txt: 0.24
+Goldilocks1.txt - US-Elections1.txt:   0.08

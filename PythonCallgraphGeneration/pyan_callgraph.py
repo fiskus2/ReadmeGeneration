@@ -10,9 +10,9 @@ from pyan import CallGraphVisitor
 
 
 def main():
-    #projectDir = './pyan'
+    projectDir = './pyan'
     #projectDir = './TestProjects/Test_ObjectOriented'
-    projectDir = './TestProjects/Test_Functional'
+    #projectDir = './TestProjects/Test_Functional'
 
 
     # Exclude all python code that likely does not implement actual features of the project
@@ -26,7 +26,7 @@ def main():
     filenames = [os.path.abspath(filename) for filename in filenames]
 
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.ERROR)
+    logger.setLevel(logging.DEBUG)
     logger.addHandler(logging.StreamHandler())
 
     cg = CallGraphVisitor(filenames, logger=logger)
@@ -56,19 +56,30 @@ def main():
 
     # When a special node is of interest in the visualization, this will show only names of the node and its neighbors
     nameToAnalyze = ''
+    showCallers = True
+    showCallees = True
+
+    # Additionally shows all nodes above a certain centrality
     minCentrality = 0
+
     nameMap = None
     if nameToAnalyze != '':
         nameMap = {}
         for caller, callees in cg.uses_edges.items():
             calleeNames = [str(callee) for callee in callees]
-            if str(caller) == nameToAnalyze or nameToAnalyze in calleeNames:
+            if (
+                    nameToAnalyze in str(caller)
+                or (showCallers and nameToAnalyze in calleeNames)
+            ):
                 nameMap[str(caller)] = str(caller)
             elif str(caller) not in nameMap:
                 nameMap[str(caller)] = ''
 
             for callee in callees:
-                if str(caller) == nameToAnalyze or str(callee) == nameToAnalyze:
+                if (
+                    (showCallees and nameToAnalyze in str(caller))
+                    or nameToAnalyze in str(callee)
+                ):
                     nameMap[str(callee)] = str(callee)
                 elif str(callee) not in nameMap:
                     nameMap[str(callee)] = ''

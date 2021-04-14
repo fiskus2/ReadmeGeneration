@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Modified as part of https://github.com/fiskus2/ReadmeGeneration on 12.04.2021
+# Modified as part of https://github.com/fiskus2/ReadmeGeneration on 14.04.2021
 """The AST visitor."""
 
 import ast
@@ -28,6 +28,7 @@ from .node import Flavor, Node
 #       add to a special scope "built-in" in analyze_scopes() (or ignore altogether)
 # TODO: support Node-ifying ListComp et al, List, Tuple
 # TODO: make the analyzer smarter (see individual TODOs below)
+# TODO: When a method of a superclass is called it will be falsely changed to the inheriting class
 
 # Note the use of the term "node" for two different concepts:
 #
@@ -165,6 +166,7 @@ class CallGraphVisitor(ast.NodeVisitor):
         self.expand_unknowns()
         self.resolve_imports()
         #self.contract_n<onexistents()
+        self.expand_inherited()
         self.cull_inherited()
         self.collapse_inner()
         #self.removeNonMethods()
@@ -674,7 +676,7 @@ class CallGraphVisitor(ast.NodeVisitor):
 
                 # add uses edge
                 from_node = self.get_node_of_current_namespace()
-                self.logger.debug("Use from %s to %s" % (from_node, attr_node))
+                #self.logger.debug("Use from %s to %s" % (from_node, attr_node))
                 #if self.add_uses_edge(from_node, attr_node):
                 #    self.logger.info("New edge added for Use from %s to %s" % (from_node, attr_node))
 
@@ -722,6 +724,7 @@ class CallGraphVisitor(ast.NodeVisitor):
             # pass on
             else:
                 self.visit(node.value)
+                self.last_value = None
 
     # name access (node.ctx determines whether set (ast.Store) or get (ast.Load))
     def visit_Name(self, node):
@@ -934,7 +937,28 @@ class CallGraphVisitor(ast.NodeVisitor):
             # the AST nodes; the keys just conveniently happen to be the Nodes
             # of known classes.
             #
-            if self.last_value in self.class_base_ast_nodes:
+
+            isSelf = False # Call is of the form self.myFunction()
+            try:
+                isSelf = node.func.value.id == 'self'
+            except:
+                pass
+
+            if isSelf:
+                from_node = self.get_node_of_current_namespace()
+                try:
+                    nodeName = node.func.attr
+                except:
+                    nodeName = node.func.id
+
+                to_node = self.get_node(from_node.namespace, nodeName, flavor=Flavor.METHOD)
+                self.logger.debug("Use from %s to %s (self.myFunction())" % (from_node, to_node))
+                if self.add_uses_edge(from_node, to_node):
+                    self.logger.info(
+                        "New edge added for Use from %s to %s (self.myFunction())" % (from_node, to_node)
+                    )
+
+            elif self.last_value in self.class_base_ast_nodes:
                 from_node = self.get_node_of_current_namespace()
                 class_node = self.last_value
                 to_node = self.get_node(class_node.get_name(), "__init__", None, flavor=Flavor.METHOD)
@@ -1743,10 +1767,32 @@ class CallGraphVisitor(ast.NodeVisitor):
             for n in self.nodes[name]:
                 if n.namespace is None:
                     n.defined = False
-                    #XXX
 
 #        for from_node, to_node in removed_uses_edges:
 #            self.uses_edges[from_node].remove(to_node)
+
+    def expand_inherited(self):
+        """
+        If an inherited method is called, this will add edges to all nodes in the inheritance hirarchy.
+        Superfluous edges will be removed in cull_inherited()
+        TODO: Combine both into one function
+        """
+
+        definedBy = {}
+        for definer, definedSet in self.defines_edges.items():
+            for defined in definedSet:
+                definedBy[defined] = definer
+
+        newUsesEdges = []
+        for from_node in self.uses_edges:
+            for to_node in self.uses_edges[from_node]:
+                if to_node.namespace != None and '<Node class:' + to_node.namespace + '>' not in definedBy:
+                    to_nodes_new = [candidate for candidate in definedBy.keys() if not self.checkInheritance(to_node, candidate)['noInheritance']]
+                    for to_node_new in to_nodes_new:
+                        newUsesEdges.append((from_node, to_node_new))
+
+        for from_node, to_node in newUsesEdges:
+            self.add_uses_edge(from_node, to_node)
 
     def cull_inherited(self):
         """

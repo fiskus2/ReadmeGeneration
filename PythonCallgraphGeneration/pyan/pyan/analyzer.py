@@ -951,7 +951,7 @@ class CallGraphVisitor(ast.NodeVisitor):
                 except:
                     nodeName = node.func.id
 
-                to_node = self.get_node(from_node.namespace, nodeName, flavor=Flavor.METHOD)
+                to_node = self.get_node(self.get_current_class().get_name(), nodeName, flavor=Flavor.METHOD)
                 self.logger.debug("Use from %s to %s (self.myFunction())" % (from_node, to_node))
                 if self.add_uses_edge(from_node, to_node):
                     self.logger.info(
@@ -1830,8 +1830,12 @@ class CallGraphVisitor(ast.NodeVisitor):
 
         # BUG: resolve relative imports causes (RuntimeError: dictionary changed size during iteration)
         # temporary solution is adding list to force a copy of 'self.nodes'
+        comps = ("lambda", "listcomp", "setcomp", "dictcomp", "genexpr")
+        nodesToRemove = []
+
         for name in list(self.nodes):
-            if name in ("lambda", "listcomp", "setcomp", "dictcomp", "genexpr"):
+            if name in comps:
+                nodesToRemove = nodesToRemove + self.nodes[name]
                 for n in self.nodes[name]:
                     pn = self.get_parent_node(n)
                     if n in self.uses_edges:
@@ -1839,6 +1843,14 @@ class CallGraphVisitor(ast.NodeVisitor):
                             self.logger.info("Collapsing inner from %s to %s, uses %s" % (n, pn, n2))
                             self.add_uses_edge(pn, n2)
                     n.defined = False
+
+
+        self.uses_edges = {caller: callees for caller, callees in self.uses_edges.items() if caller not in nodesToRemove}
+        for caller, callees in self.uses_edges.items():
+            self.uses_edges[caller] = [callee for callee in self.uses_edges[caller] if callee not in nodesToRemove]
+
+        self.nodes = {name: nodes for name, nodes in self.nodes.items() if name not in comps}
+
 
     def removeNonMethods(self):
         removedElements = []

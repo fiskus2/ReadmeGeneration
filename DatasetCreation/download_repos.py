@@ -8,38 +8,51 @@ import glob
 import shutil
 from joblib import Parallel, delayed
 import random
+import os, stat, shutil
+import itertools
+
+download_dir = '.\\data\\python-projects-med\\'
+input_file = '.\\data\\python-projects-med\\filtered.csv'
+
+def handleRemoveReadonly(func, path, exc):
+    new_path = u'\\\\?\\' + os.path.abspath(path) if '?' not in path else path
+    os.chmod(new_path, stat.S_IRWXU| stat.S_IRWXG| stat.S_IRWXO) # 0777
+    func(new_path)
 
 #Downloads one repository. Used for parallelization
 def download_repo(args):
-    parts = args[0]
-    i = args[1]
+    parts, i, already_downloaded = args
 
     url = parts[0]
     descriptor = parts[1]
 
     url_parts = url.split('/')
-    author = url_parts[-2]
-    project = url_parts[-1]
+    author = url_parts[-2] #e.g. 'vinta'
+    project = url_parts[-1] #e.g. 'awesome-python.git'
+
+    if author + ',' + project[:-4] in already_downloaded:
+        return
 
     #Split into train, test and validation folders 80-10-10
     rnd = random.randint(0, 9)
     if rnd == 0:
-        split_folder = 'test/'
+        split_folder = 'test\\'
     elif rnd == 1:
-        split_folder = 'validation/'
+        split_folder = 'validation\\'
     else:
-        split_folder = 'train/'
+        split_folder = 'train\\'
 
-    repo_dir = './data/code/' + split_folder + str(i) + '-' + author + '-' + project
+    # ',' is used as delimiter, because it cannot occur in github project names
+    repo_dir = download_dir + split_folder + str(i) + ',' + author + ',' + project[:-4]
 
     if i % 100 == 0:
         print(str(i))
 
     try:
-        Repo.clone_from(url, repo_dir)
+        Repo.clone_from('git://github.com/' + author + '/' + url_parts[-1], repo_dir)
     except Exception as e:
         try:
-            shutil.rmtree(repo_dir)
+            shutil.rmtree(u'\\\\?\\' + os.path.abspath(repo_dir), ignore_errors=False, onerror=handleRemoveReadonly)
         except FileNotFoundError:
             pass
 
@@ -50,21 +63,36 @@ def download_repo(args):
         return
 
     #Delete all files that are not python or Readme files to save space
-    for root, dirs, files in os.walk(repo_dir):
-        for file in files:
-            if not file.lower().startswith('readme') \
-                    and not file.lower().endswith('.py') \
-                    or file.lower() == 'setup.py':
-                os.remove(os.path.join(root, file))
+    try:
+        for root, dirs, files in os.walk(repo_dir):
+            for file in files:
+                if not file.lower().startswith('readme') \
+                        and not file.lower().endswith('.py') \
+                        or file.lower() == 'setup.py':
+                    os.chmod(os.path.join(root, file), stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                    os.remove(os.path.join(root, file))
 
-    #The project description is added as a new file
-    with open(repo_dir + '/descriptor', 'w') as file:
-        file.write(descriptor)
+        #The project description is added as a new file
+        with open(repo_dir + '\\descriptor', 'w', encoding="ISO-8859-1") as file:
+            file.write(descriptor)
+
+    except FileNotFoundError:
+        #This happens when a path gets too long. The project is discarded in that case
+        shutil.rmtree(repo_dir, ignore_errors=False, onerror=handleRemoveReadonly)
 
 
 def main():
-    Path("./data/code/").mkdir(parents=True, exist_ok=True)
-    filenames = glob.glob('./data/*.csv')
+    Path(download_dir).mkdir(parents=True, exist_ok=True)
+    downloaded_folders = glob.glob(download_dir + '*\\*\\')
+
+    #check which projects are already downloaded
+    already_downloaded = []
+    for folder in downloaded_folders:
+        folder = os.path.basename(os.path.normpath(folder))
+        name = folder[folder.find(',') + 1:]
+        already_downloaded.append(name)
+
+    filenames = glob.glob(input_file)
 
     i = 0
 
@@ -72,10 +100,10 @@ def main():
         with open(filename, encoding="ISO-8859-1", newline='') as projects_file:
             reader = csv.reader(projects_file, delimiter=',', quotechar='"')
             rows = list(reader)
-            args = list(zip(rows, range(i, i + len(rows))))
+            args = list(zip(rows, range(i, i + len(rows)), itertools.repeat(already_downloaded)))
 
             i += len(rows)
-            results = Parallel(n_jobs=4, backend="threading")(map(delayed(download_repo), args))
+            results = Parallel()(map(delayed(download_repo), args))
             print(str(results))
 
 

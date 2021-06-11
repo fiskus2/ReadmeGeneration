@@ -80,7 +80,7 @@ def main():
             results = [project for project in results if project != None]
             results.sort(key=lambda tup: tup[2], reverse=True)
 
-        with open('', mode='w', encoding="ISO-8859-1",
+        with open(output_file, mode='w', encoding="ISO-8859-1",
                   newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
             writer.writerows(results)

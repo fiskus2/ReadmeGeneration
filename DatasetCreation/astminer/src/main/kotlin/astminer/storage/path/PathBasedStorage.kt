@@ -78,7 +78,7 @@ abstract class PathBasedStorage(
     }
 
     private fun retrievePaths(node: Node) = if (config.maxPathContextsPerEntity != null) {
-        pathMiner.retrievePaths(node).take(config.maxPathContextsPerEntity)
+        pathMiner.retrievePaths(node).shuffled().take(config.maxPathContextsPerEntity)
     } else {
         pathMiner.retrievePaths(node)
     }

@@ -6,22 +6,13 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import sys
 from modulegraph import modulegraph
+from SoftwareAnalytics.util import get_source_files
 
-sys.path.insert(0, './pyan')
-from pyan import CallGraphVisitor
-from pyan import anutils
+#sys.path.insert(0, './pyan')
+from SoftwareAnalytics.pyan.pyan import CallGraphVisitor
+from SoftwareAnalytics.pyan.pyan import anutils
 
-# Exclude all python code that likely does not implement actual features of the project
-def get_source_files(projectDir):
-    banned_folders = ['Test', 'test', 'Tests', 'tests',
-                     'venv', '__pycache__']
-    banned_keywords = ['Demo', 'demo', 'Example', 'example', 'Examples', 'examples', 'setup.py']
 
-    filenames = [fn for fn in glob(projectDir + '/**/*.py', recursive=True)]
-    filenames = [filename for filename in filenames if not set(banned_folders) & set(filename.split(os.path.sep))]
-    filenames = [filename for filename in filenames if not any([keyword in filename for keyword in banned_keywords])]
-    filenames = [os.path.abspath(filename) for filename in filenames]
-    return filenames
 
 #Create a callgraph using pyan
 def make_callgraph(filenames, debugLog=False):
@@ -98,7 +89,6 @@ def display_module_graph(graph, centrality, hideLeaves=False):
 
     nameMap=None
 
-
     nx.draw_networkx_nodes(graph, pos, node_size=[centrality[node] * 1000 for node in graph.nodes], node_color=node_color)
     nx.draw_networkx_edges(graph, pos, node_size=0, width=1, edge_color=edge_color, arrowsize=20)
     nx.draw_networkx_labels(graph, pos, font_size=8, labels=nameMap, alpha=0.5)
@@ -107,6 +97,7 @@ def display_module_graph(graph, centrality, hideLeaves=False):
 
 
 #Calculates the eigenvector centrality weighted by the out degree of a networkx graph
+#Not used
 def weighted_centrality(graph):
     in_degrees = graph.in_degree()
     out_degrees = graph.out_degree()
@@ -123,10 +114,14 @@ def weighted_centrality(graph):
     evCentrality = {k: v for k, v in sorted(evCentrality.items(), key=lambda item: item[1], reverse=True)}
     return evCentrality
 
+def reverse_katz_centrality(graph):
+    centrality = nx.katz_centrality(graph.reverse())
+    centrality = sorted(centrality.items(), key=lambda item: item[1], reverse=True)
+    return centrality
 
-def display_graph(graph, callgraph, centrality, short_names=True, hide_leaves=False):
+def display_graph(graph, callgraph, centrality, short_names=False, hide_leaves=False):
     # When a special node is of interest in the visualization, this will show only names of the node and its neighbors
-    name_to_analyze = ''
+    name_to_analyze = '*'
     show_callers = True
     show_callees = True
 
@@ -138,6 +133,8 @@ def display_graph(graph, callgraph, centrality, short_names=True, hide_leaves=Fa
         for edge in graph.edges:
             if graph.out_degree()[edge[1]] > 0:
                 newGraph.add_edge(edge[0], edge[1])
+            else:
+                newGraph.add_node(edge[0])
         graph = newGraph
 
     name_map = None
@@ -169,14 +166,16 @@ def display_graph(graph, callgraph, centrality, short_names=True, hide_leaves=Fa
                 name_map[node] = node
 
     if short_names:
+        #name_map = {} if name_map is None else name_map
         name_map = {node: node[node.rfind('.', 0, node.rfind('.') - 1)+1 : -1] for node in graph}
+
 
     # Draw the graph
     pos = nx.nx_agraph.graphviz_layout(graph)
 
     if hide_leaves:
         edge_color = '#A0A0A0'
-        node_color = '#3030FF'
+        node_color = ['#3030FF'] * len(graph)#'#3030FF'
     else:
         edge_color = []
         for edge in graph.edges:
@@ -186,6 +185,14 @@ def display_graph(graph, callgraph, centrality, short_names=True, hide_leaves=Fa
         for node in graph:
             node_color.append('#B0B0FF' if graph.out_degree()[node] == 0 else '#3030FF')
 
+    core_nodes = list(centrality.keys())[:10]
+    #i = 0
+    #for node in graph.nodes:
+    #    if node in core_nodes:
+    #        node_color[i] = '#000000'
+    #    i += 1
+
+    name_map = {node: name for node, name in name_map.items() if node in graph}
 
     nx.draw_networkx_nodes(graph, pos, node_size=[centrality[node] * 1000 for node in graph.nodes], node_color=node_color)
     nx.draw_networkx_edges(graph, pos, node_size=0, width=1, edge_color=edge_color, arrowsize=20)
@@ -194,54 +201,22 @@ def display_graph(graph, callgraph, centrality, short_names=True, hide_leaves=Fa
     plt.show()
 
 
-#Try to determine the module of a function such that pyan and modulegraph agree
-def get_module_of_function(function, module_graph):
-    if function[0] == '<' and ':' in function:
-        function = function[function.find(':') + 1: function.rfind('.')]
-
-    if function not in module_graph:
-        if '.' in function:
-            function = function[: function.rfind('.')]
-            return get_module_of_function(function, module_graph)
-        else:
-            return None
-    else:
-        return function
-
-
 def main():
-    #projectDir = './pyan'
+    projectDir = './pyan'
     #projectDir = './TestProjects/Test_ObjectOriented'
-    projectDir = './TestProjects/Test_Functional'
-    #projectDir = './TestProjects/betterbib'
+    #projectDir = './TestProjects/Test_Functional'
+    #projectDir = './TestProjects/Test_Inlining'
+    #projectDir = './TestProjects/tootbot'
+
 
     filenames = get_source_files(projectDir)
     callgraph = make_callgraph(filenames)
-
-    mg = make_module_graph(filenames)
-    mg_centrality = weighted_centrality(mg)
-    display_module_graph(mg, mg_centrality, hideLeaves=False)
     graph = make_networkx_graph(callgraph)
 
-
-    undetermined_module = set()
-    for node in graph:
-        name = node[node.find(':') + 1: node.rfind('.')]
-        if name not in mg_centrality:
-            if '.' in name:
-                name = name[: name.rfind('.')]
-            else:
-                undetermined_module.add(name)
-            if name not in mg_centrality:
-                undetermined_module.add(name)
-
-    print('Module not determinable for:')
-    for name in undetermined_module:
-        print(name)
-
-    centrality = weighted_centrality(graph)
+    centrality = nx.katz_centrality(graph.reverse())
+    centrality = {k: v for k, v in sorted(centrality.items(), key=lambda item: item[1], reverse=True)}
     print(centrality)
-    display_graph(graph, callgraph, centrality, hide_leaves=False)
+    display_graph(graph, callgraph, centrality, hide_leaves=True)
 
 
 if __name__ == "__main__":

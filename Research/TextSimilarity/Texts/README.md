@@ -15,3 +15,7 @@ FlaskDocstrings.txt: All docstrings from the code of the flask project
 JFreeChartJavadocs.txt: Javadoc comments from the jfreecchart Project. Only the functios with highes eigenvector centrality are included.
 
 JFreeChartJavadocsCleaned.txt: Like JFreeChartJavadocs.txt, but without descriptions of parameters, return values and such. Since the comments are shorter, more of them have been included.
+
+Matplotlib.txt: https://en.wikipedia.org/wiki/Matplotlib
+
+Belarus.txt: https://www.bbc.com/news/world-europe-57229635

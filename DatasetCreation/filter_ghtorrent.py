@@ -124,7 +124,7 @@ def filter_repo(args):
 
     #Filter all projects with too few stars (watchers)
     stars = 0 if id not in watchers else watchers[id]
-    if id in watchers:
+    if stars == 0:
         return# 'not_enough_stars'
 
     return((new_url, descriptor, stars))

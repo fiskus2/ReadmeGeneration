@@ -402,6 +402,10 @@ class CallGraphVisitor(ast.NodeVisitor):
     def visit_FunctionDef(self, node):
         self.logger.debug("FunctionDef %s, %s:%s" % (node.name, self.filename, node.lineno))
 
+        if node.name == 'top':
+            #Pythons symtable module uses 'top' as a keyword. Functions named 'top' cannot be processed properly
+            return
+
         # To begin with:
         #
         # - Analyze decorators. They belong to the surrounding scope,
@@ -951,7 +955,11 @@ class CallGraphVisitor(ast.NodeVisitor):
                 except:
                     nodeName = node.func.id
 
-                to_node = self.get_node(self.get_current_class().get_name(), nodeName, flavor=Flavor.METHOD)
+                try:
+                    to_node = self.get_node(self.get_current_class().get_name(), nodeName, flavor=Flavor.METHOD)
+                except AttributeError:
+                    #error in input data
+                    return
                 self.logger.debug("Use from %s to %s (self.myFunction())" % (from_node, to_node))
                 if self.add_uses_edge(from_node, to_node):
                     self.logger.info(

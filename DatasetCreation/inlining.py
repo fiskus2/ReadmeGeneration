@@ -4,7 +4,6 @@ import networkx as nx
 from networkx.algorithms.approximation.steinertree import steiner_tree
 import re
 
-
 #Determines how the functions shall be inlined.
 #Returns a directed graph where each node is a function and each edge an inlining that shall be performed
 def determine_inlining_order(clusters, graph):
@@ -35,7 +34,7 @@ def determine_inlining_order(clusters, graph):
         if len(inlining) > 1:
             for from_node in inlining:
                 for to_node in graph.successors(from_node):
-                    if to_node in inlining:
+                    if to_node in inlining and inlining.has_edge(from_node, to_node):
                         directed_inlining.add_edge(from_node, to_node)
         else:
             directed_inlining.add_node(list(inlining.nodes())[0])
@@ -47,7 +46,31 @@ def determine_inlining_order(clusters, graph):
                 directed_inlining.remove_node(root)
                 clusters.append([root])
 
+        root = roots[0]
+
+        # While the undirected graph was a tree, restoring the direction information may cause a cycle when two
+        # functions call each other, which leads to an infinite loop when inlining. The edge leading towards the
+        # root is deleted, so all nodes remain reachable from the root
+        try:
+            cycles = nx.simple_cycles(directed_inlining)
+            for cycle in cycles:
+                # cycles cannot be longer than 2, otherwise the undirected graph would not be a tree. That is unless
+                # two cycles are adjacent to each other, which is not recogniced by nx.simple_cycles
+                assert len(cycle) == 2
+                nodeA = cycle[0][0]
+                nodeB = cycle[0][1]
+
+                path = nx.shortest_path(directed_inlining, root, nodeB)
+                if nodeA in [path]:
+                    directed_inlining.remove_edge(nodeB, nodeA)
+                else:
+                    directed_inlining.remove_edge(nodeA, nodeB)
+
+        except nx.NetworkXNoCycle:
+            pass
+
         directed_inlinings.append(directed_inlining)
+
 
     return directed_inlinings
 
@@ -90,7 +113,6 @@ def get_core_clusters(core_functions, graph):
 def inline_neighbors(graph, node, code):
     neighbors = list(graph.successors(node))
     insertion_locations = {}
-
 
     for neighbor in neighbors:
 
@@ -217,7 +239,6 @@ def remove_multiline_function_calls(code):
             assert brace_level >= 0
             #if re.search(r'[^\s]\(', line) is not None and line.strip()[-1] != ')' and line.strip()[-1] != ':':
             if brace_level != 0:
-                j = 1
                 while brace_level != 0:
                     code[i] += code[i+1]
                     del code[i+1]
@@ -261,12 +282,12 @@ def remove_nested_functions(code):
     function_indentation = ''
     for i in range(1, len(code)):
         if keep:
-            search = re.search(r'(\s*)def ', code[i])
+            search = re.search(r'(\s+)def ', code[i])
             if search is not None:
                 keep = False
                 function_indentation = search.group(1)
 
-        elif code[i] == '' or code[i].isspace():
+        elif code[i] != '' and not code[i].isspace():
             #nested function ends, when line does not start with function_indentation or does start with function_indentation
             #but does not contain any further indentation for the nested function
             keep = (not code[i].startswith(function_indentation)) or not code[i][len(function_indentation)].isspace()

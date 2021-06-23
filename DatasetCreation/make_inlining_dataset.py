@@ -13,8 +13,8 @@ from bs4 import BeautifulSoup
 import nltk
 from itertools import chain
 
-input_dir = '/home/fiskus/workspace/MA/pycallgraph-test/test_dataset/'
-output_dir = './data/'
+input_dir = './data/python-projects-med/tmp/'
+output_dir = './data/python-projects-med/inlining/'
 num_core_functions = 10
 num_what_section_sentences = 2
 
@@ -53,7 +53,7 @@ def main():
     #Execute readme classifier
     dir = os.getcwd()
     os.chdir('../READMEClassifier/script/')
-    sys.path.append('/home/fiskus/workspace/MA/ReadmeGeneration/READMEClassifier/script')
+    sys.path.append(os.getcwd())
     exec(open("empty_all_tables.py").read(), globals())
     exec(open("load_target_sections.py").read(), globals())
     exec(open("classifier_classify_target.py").read(), globals())
@@ -88,7 +88,7 @@ def process_project(project, what_section):
         root = get_root_nodes(inlining)[0]
 
         code = {node: get_source_code(callgraph.module_to_filename, node) for node in inlining}
-        code = {node: remove_multiline_function_calls(lines) for node, lines in code.items()}
+        #code = {node: remove_multiline_function_calls(lines) for node, lines in code.items()}
         inlined_code.append(inline_neighbors(inlining, root, code))
 
     inlined_code = [remove_nested_functions(function) for function in inlined_code]
@@ -111,7 +111,7 @@ def process_project(project, what_section):
     inlined_code[0] = re.sub(r'def .+\(', 'def ' + target_sequence + '(', inlined_code[0])
     inlined_code = '\n'.join(inlined_code)
 
-    with open(output_dir + project + '.py', 'w') as file:
+    with open(output_dir + project + '.py', 'w', encoding="utf-8") as file:
         file.write(inlined_code)
 
 
@@ -202,7 +202,7 @@ def get_first_sentences_as_function_name(text, n):
 
     #remove all special characters
     words = [''.join(e for e in word if e.isalnum()) for word in words]
-    words = [word for word in words if word is not '']
+    words = [word for word in words if word != '']
 
     return '_'.join(words)
 

@@ -42,26 +42,46 @@ def determine_inlining_order(clusters, graph):
         # To allow inlining, each cluster must have exactly one root. Additional roots will be moved to a new cluster.
         roots = get_root_nodes(directed_inlining)
         if len(roots) > 1:
-            for root in roots[1:]:
-                directed_inlining.remove_node(root)
-                clusters.append([root])
+            #Other roots may have nodes connected to them, that are not reachable from this root. Those nodes shall
+            #also be moved to the new cluster.
+            for other_root in roots[1:]:
+                this_roots_subgraph = set([node for node in directed_inlining if nx.has_path(directed_inlining, roots[0], node)])
+                other_roots_subgraph = set([node for node in directed_inlining if nx.has_path(directed_inlining, other_root, node)])
+                other_roots_subgraph = other_roots_subgraph - this_roots_subgraph
 
-        root = roots[0]
+                directed_inlining.remove_nodes_from(other_roots_subgraph)
+                other_roots_inlining = determine_inlining_order([other_roots_subgraph], graph)[0]
+                directed_inlinings.append(other_roots_inlining)
 
+        root = roots[0] if len(roots) != 0 else None
         # While the undirected graph was a tree, restoring the direction information may cause a cycle when two
         # functions call each other, which leads to an infinite loop when inlining. The edge leading towards the
         # root is deleted, so all nodes remain reachable from the root
         try:
-            cycles = nx.simple_cycles(directed_inlining)
-            for cycle in cycles:
+
+            #Search for a root node candidate if none exist due to the restoration of the direction information.
+            #Due to cycles root nodes may be called by other nodes, but only if the root node itself calls that node
+            #through a cycle. The first suitable root node candidate is selected
+            for cycle in nx.simple_cycles(directed_inlining):
+                if root is not None:
+                    break
+                assert len(cycle) == 2
+                for node in cycle:
+                    callers = set(directed_inlining.predecessors(node))
+                    callees = set(directed_inlining.successors(node))
+                    if len(callers.difference(callees)) == 0:
+                        root = node
+                        break
+
+            for cycle in nx.simple_cycles(directed_inlining):
                 # cycles cannot be longer than 2, otherwise the undirected graph would not be a tree. That is unless
                 # two cycles are adjacent to each other, which is not recogniced by nx.simple_cycles
                 assert len(cycle) == 2
-                nodeA = cycle[0][0]
-                nodeB = cycle[0][1]
+                nodeA = cycle[0]
+                nodeB = cycle[1]
 
                 path = nx.shortest_path(directed_inlining, root, nodeB)
-                if nodeA in [path]:
+                if nodeA in path:
                     directed_inlining.remove_edge(nodeB, nodeA)
                 else:
                     directed_inlining.remove_edge(nodeA, nodeB)
@@ -69,6 +89,7 @@ def determine_inlining_order(clusters, graph):
         except nx.NetworkXNoCycle:
             pass
 
+        assert len(get_root_nodes(directed_inlining)) == 1
         directed_inlinings.append(directed_inlining)
 
 
@@ -144,9 +165,16 @@ def inline_neighbors(graph, node, code):
             for i in range(len(code[node])):
                 line = code[node][i]
                 call_index = line.index(neighbor_function_name + '(') if neighbor_function_name + '(' in line else -1
+                if call_index > 0 and not line[call_index - 1].isspace() and not line[call_index - 1] == '.':
+                    call_index = -1
                 if call_index != -1:
                     insertion_locations[neighbor] = i
                     break
+
+    unfound_calls = set(neighbors).difference(set(insertion_locations.keys()))
+    for unfound_call in unfound_calls:
+        print('Call of ' + unfound_call + ' not found for inlining. Maybe inheritance problem')
+        neighbors.remove(unfound_call)
 
     inlined = code[node]
 
@@ -191,7 +219,9 @@ def inline_neighbors(graph, node, code):
                 insertion_locations[function] += len(neighbor_code)
 
         callee_name = neighbor.split('.')[-1][:-1]
-        if not neighbor.startswith('<Node class:') and callee_name != '__init__':
+        #Dont replace function call when multiple relevant calls are detected in one line (they may be nested)
+        if not neighbor.startswith('<Node class:') and callee_name != '__init__' \
+                and sum([1 for location in insertion_locations.keys() if location == insertion_locations[function]]):
             calling_line_index = insertion_locations[neighbor]
             calling_line = inlined[calling_line_index]
 
@@ -226,30 +256,7 @@ def inline_neighbors(graph, node, code):
     return inlined
 
 
-# Argument lists that extend over several lines will be moved to the function name,
-# so that the whole function call is in one line
-# code: a list of lines of source code
-def remove_multiline_function_calls(code):
-    if len(code) == 0:
-        return code
-    try:
-        for i in range(len(code)):
-            line = remove_strings([code[i]])[0]
-            brace_level = line.count('(') - line.count(')')
-            assert brace_level >= 0
-            #if re.search(r'[^\s]\(', line) is not None and line.strip()[-1] != ')' and line.strip()[-1] != ':':
-            if brace_level != 0:
-                while brace_level != 0:
-                    code[i] += code[i+1]
-                    del code[i+1]
-                    line = remove_strings([code[i]])[0]
-                    brace_level = line.count('(') - line.count(')')
 
-    except IndexError:
-        #The length changes due to the deletion, so the range goes out of bounds
-        pass
-
-    return code
 
 #Removes strings without replacement
 #text: a list of lines of code
@@ -281,13 +288,12 @@ def remove_nested_functions(code):
     keep = True
     function_indentation = ''
     for i in range(1, len(code)):
-        if keep:
-            search = re.search(r'(\s+)def ', code[i])
-            if search is not None:
+        search = re.search(r'^(\s+)def ', code[i])
+        if search is not None:
                 keep = False
                 function_indentation = search.group(1)
 
-        elif code[i] != '' and not code[i].isspace():
+        elif not keep and code[i] != '' and not code[i].isspace():
             #nested function ends, when line does not start with function_indentation or does start with function_indentation
             #but does not contain any further indentation for the nested function
             keep = (not code[i].startswith(function_indentation)) or not code[i][len(function_indentation)].isspace()

@@ -1,6 +1,5 @@
 import token, tokenize
 import re
-from DatasetCreation.inlining import remove_multiline_function_calls
 
 #Returns the code of a node in the callgraph. Comments and annotations are removed
 def get_source_code(module_to_filename, node):
@@ -16,7 +15,7 @@ def get_source_code(module_to_filename, node):
     is_module = node.startswith('<Node module:')
     is_class = node.startswith('<Node class:')
     is_function = node.startswith('<Node function:')
-    is_method = node.startswith('<Node method:') or node.startswith('<Node classmethod:')
+    is_method = node.startswith('<Node method:') or node.startswith('<Node classmethod:') or node.startswith('<Node staticmethod:')
 
     # e.g.:
     # <Node function:httpie.client.collect_messages>
@@ -37,6 +36,8 @@ def get_source_code(module_to_filename, node):
     with open(filename, 'r', encoding="ISO-8859-1") as file:
         file_content = file.readlines()
 
+    if file_content[-1][-1] != '\n':
+        file_content[-1] += '\n'
     file_content = remove_comments(file_content)
     file_content = remove_annotations(file_content)
     file_content = remove_multiline_function_calls(file_content)
@@ -97,7 +98,7 @@ def get_class(file_content, class_name):
         if in_correct_class:
             in_correct_class = line.startswith(class_indentation) or line == ''
         else:
-            in_correct_class = line.startswith('class ' + class_name + ':')
+            in_correct_class = line.startswith('class ' + class_name + ':') or line.startswith('class ' + class_name + '(')
             first_indentation = in_correct_class
 
         keep = in_correct_class and \
@@ -115,8 +116,6 @@ def get_class(file_content, class_name):
 def get_function(file_content, function_name):
     assert sum([1 if line.startswith('def ' + function_name + '(') else 0 for line in file_content]) <= 1
 
-    for line in file_content:
-        line
 
     stringless = remove_comments([line + '\n' for line in file_content], remove_strings=True)
 
@@ -127,14 +126,16 @@ def get_function(file_content, function_name):
         line = stringless[i]
         if keep:
             keep = line == '' or line.isspace() or (line.startswith(indentation) and line[len(indentation)].isspace())
+            if not keep:
+                break
         else:
             search = re.search(r'(\s*)def ' + function_name + r'\(', line)
             keep = search != None
             if keep:
                 indentation = search.group(1)
 
-        if not (line.startswith(' ') or line.startswith('\t') or line == ''):
-            keep = line.startswith('def ' + function_name + '(')
+        #if not (line.startswith(' ') or line.startswith('\t') or line == ''):
+        #    keep = line.startswith('def ' + function_name + '(')
 
         if keep:
             function.append(file_content[i])
@@ -162,7 +163,7 @@ def get_method(file_content, class_name, method_name):
             in_correct_class = (not line.startswith('class ') and not line.startswith('def ')) \
             and (line.startswith(' ') or line.startswith('\t') or line.startswith('#') or line == '')
         else:
-            in_correct_class = line.startswith('class ' + class_name)
+            in_correct_class = line.startswith('class ' + class_name + ':') or line.startswith('class ' + class_name + '(')
             first_indentation = in_correct_class
 
 
@@ -202,6 +203,9 @@ def remove_comments(code, remove_strings=False):
                 result += '\\\n'
             last_line = ltext
 
+        last_lineno = elineno
+        prev_toktype = toktype
+
         if scol > last_col:
             result = result + " " * (scol - last_col)
         if toktype == token.STRING and remove_strings:
@@ -218,10 +222,8 @@ def remove_comments(code, remove_strings=False):
             continue
         else:
             result = result + ttext
-        prev_toktype = toktype
-        last_col = ecol
-        last_lineno = elineno
 
+        last_col = ecol
 
     result = result[:-1]
     result = result.split('\n')
@@ -264,7 +266,38 @@ def remove_annotations(text):
     return text
 
 
-with open(r'C:\Workspace\ReadmeGeneration\DatasetCreation\tst.txt') as file:
-    code = file.readlines()
-    code2 = remove_comments(code, True)
-    x = 5
+
+# Argument lists that extend over several lines will be moved to the function name,
+# so that the whole function call is in one line
+# code: a list of lines of source code
+def remove_multiline_function_calls(code):
+    if len(code) == 0:
+        return code
+
+    stringless = remove_comments([line + '\n' for line in code], remove_strings=True)
+    try:
+        i = 0
+        while i < len(code):
+            line = stringless[i]
+            brace_level = line.count('(') - line.count(')')
+            assert brace_level >= 0
+            #if re.search(r'[^\s]\(', line) is not None and line.strip()[-1] != ')' and line.strip()[-1] != ':':
+            if brace_level != 0:
+                j = 1
+                while brace_level != 0:
+                    line = stringless[i+j]
+                    brace_level += line.count('(') - line.count(')')
+                    # The space is added to prevent '''\n'some string'\n''' from becoming ''''some string''''
+                    # which would end the string too early and leave an extra '
+                    code[i] += ' ' + code[i+j]
+                    code[i+j] = ''
+                    j += 1
+                i += j - 1
+            i += 1
+
+
+    except IndexError:
+        #The length changes due to the deletion, so the range goes out of bounds
+        pass
+
+    return code

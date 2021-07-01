@@ -2,8 +2,8 @@ import os
 from SoftwareAnalytics.util import get_source_files, get_core_functions, get_root_nodes
 from SoftwareAnalytics.pyan_callgraph import make_callgraph, make_networkx_graph, reverse_katz_centrality
 from DatasetCreation.inlining import get_core_clusters, determine_inlining_order, inline_neighbors, \
-    remove_multiline_function_calls, get_lowest_indentation, remove_nested_functions
-from SoftwareAnalytics.get_source_code import get_source_code
+    get_lowest_indentation, remove_nested_functions
+from SoftwareAnalytics.get_source_code import get_source_code, remove_multiline_function_calls
 from shutil import copyfile
 import sys
 import re
@@ -12,6 +12,7 @@ from markdown import markdown
 from bs4 import BeautifulSoup
 import nltk
 from itertools import chain
+import traceback
 
 input_dir = './data/python-projects-med/tmp/'
 output_dir = './data/python-projects-med/inlining/'
@@ -76,7 +77,21 @@ def main():
 #Determines the most important functions of a project and inlines them into one function
 def process_project(project, what_section):
     filenames = get_source_files(input_dir + project)
-    callgraph = make_callgraph(filenames)
+    if len(filenames) == 0:
+        print('Found no relevant files for project: ' + project)
+        return
+    try:
+        callgraph = make_callgraph(filenames)
+    except SyntaxError:
+        print('Syntax error processing ' + project + '. Maybe python 2 project.')
+        return
+    except KeyError as err:
+        if 'for candidate_to_node in self.defines_edges[to_node]:' in traceback.format_exc():
+            print('Mysterious Pyan import problem')
+        else:
+            raise err
+        return
+
     graph = make_networkx_graph(callgraph)
     centrality = reverse_katz_centrality(graph)
     core_functions = get_core_functions(num_core_functions, centrality, callgraph)

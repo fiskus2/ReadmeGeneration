@@ -13,9 +13,15 @@ from bs4 import BeautifulSoup
 import nltk
 from itertools import chain
 import traceback
+from lib2to3.main import main as to_py3
+import threading
+import contextlib#
+from multiprocessing import Process, Queue
+import logging
+import subprocess
 
 input_dir = './data/python-projects-med/tmp/'
-output_dir = './data/python-projects-med/inlining/'
+output_dir = './data/python-projects-med/inlining/validation/'
 num_core_functions = 10
 num_what_section_sentences = 2
 
@@ -24,6 +30,7 @@ num_what_section_sentences = 2
 #The function names are the 'what' sections of the corresponding project, which describes the purpose of the project
 def main():
     readme_classifier_input_dir = '../READMEClassifier/input/clf_target_readmes/'
+    os.makedirs(output_dir, exist_ok=True)
     projects = os.listdir(input_dir)
 
     #Delete old files in readme classifier input dir
@@ -63,27 +70,64 @@ def main():
     #The 'what' secion of a readme, which describes the projects purpose
     what_sections = get_what_sections(readme_classifier_input_dir, '../READMEClassifier/output/output_section_codes.csv')
 
-    projects = [project for project in projects]
+    #Project descriptors are used as backup if no what section is found
+    descriptors = {}
+    for project_folder in projects:
+        with open(input_dir + project_folder + '/descriptor', 'r', encoding="ISO-8859-1") as file:
+            descriptors[project_folder] = file.read()
+
+    #for project_folder in projects:
+    #    id, author, project = project_folder.split(',')
+    #    print(project + '\t' + get_first_sentences_as_function_name(what_sections.get(author + '.' + project + '.md', ''), num_what_section_sentences).replace('\n', ' ') + '\t' + descriptors[project_folder].replace('\n', ' '))
+
+    num_no_what_section = 0
     for project_folder in projects:
         id, author, project = project_folder.split(',')
         try:
             what_section = what_sections[author + '.' + project + '.md']
         except KeyError:
-            continue
+            what_section = descriptors[project_folder]
+
         if len(what_section) != 0:
-            process_project(project_folder, what_section)
+            try:
+                process_project(project_folder, what_section)
+            except Exception as err:
+                print('Unhandeled error in project ' + project_folder + ': ' + str(err))
+        else:
+            num_no_what_section += 1
+    print('Projects processed: ' + str(len(projects)))
+    print('Projects with no what section and descriptor: ' + num_no_what_section)
 
 
 #Determines the most important functions of a project and inlines them into one function
-def process_project(project, what_section):
+#Converted: whether a conversion from python2 to python3 has been attempted
+def process_project(project, what_section, converted=False):
     filenames = get_source_files(input_dir + project)
     if len(filenames) == 0:
         print('Found no relevant files for project: ' + project)
         return
     try:
         callgraph = make_callgraph(filenames)
-    except SyntaxError:
-        print('Syntax error processing ' + project + '. Maybe python 2 project.')
+    except SyntaxError as err:
+        print('Syntax error processing ' + project + '. Error: ' + str(err))
+        if not converted:
+            print('\tAttempting conversion to python 3')
+
+            #Attempting to silence the to_py3() function, only works partially
+            def dummy(*args):
+                pass
+            logger = logging.getLogger('RefactoringTool')
+            logger.info = dummy
+            logger.debug = dummy
+            logger.error = dummy
+            logger.critical = dummy
+            logger.propagate = False
+            logger.disabled = True
+
+            print('2to3 output start')
+            to_py3("lib2to3.fixes", ['-x', 'filter', '-x', 'map', '-x', 'unicode', '-x', 'xrange', '-x', 'zip', '-n', '-j', '10', '-w', input_dir + project])
+            print('2to3 output end')
+            process_project(project, what_section, converted=True)
         return
     except KeyError as err:
         if 'for candidate_to_node in self.defines_edges[to_node]:' in traceback.format_exc():
@@ -91,12 +135,27 @@ def process_project(project, what_section):
         else:
             raise err
         return
+    except ValueError as err:
+        print(str(err) + ' Project: ' + project)
+        return
+    except Exception as err:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print('Exception in pyan: ', exc_type, fname, exc_tb.tb_lineno)
+        return
+
+    if converted:
+        print('\tConversion Successful')
 
     graph = make_networkx_graph(callgraph)
     centrality = reverse_katz_centrality(graph)
     core_functions = get_core_functions(num_core_functions, centrality, callgraph)
     clusters = get_core_clusters(core_functions, graph)
     inlinings = determine_inlining_order(clusters, graph)
+
+    if len(core_functions) == 0 and len(centrality) > 0:
+        print('Could not identify relevant functions for project: ' + project)
+        return
 
     inlined_code = []
     for inlining in inlinings:
@@ -151,17 +210,14 @@ def get_what_sections(readme_path, classification_path):
         heading = fields[3]
 
         if current_readme != filename:
-            if malformed:
-                print('Malformed readme: ' + current_readme)
-            elif readme_categorization is not None:
+            if readme_categorization is not None and len(readme_categorization) > 0:
                 readme_categorizations.append(readme_categorization)
 
             current_readme = filename
             readme_categorization = []
-            malformed = False
 
-        malformed = malformed or not re.search('[a-zA-Z]', heading)
-        readme_categorization.append(fields)
+        if re.search('[a-zA-Z]', heading):
+            readme_categorization.append(fields)
 
     readme_categorizations.append(readme_categorization)
 
@@ -176,6 +232,12 @@ def get_what_sections(readme_path, classification_path):
 
         end = 0
         for fields in readme_categorization[1:]:
+            if re.search('[A-Za-z]', fields[3]) == None:
+                #Empty headline, perhaps '---' was used to draw a line in markdown
+                continue
+            if '@abstr_code_section' in fields[3]:
+                #Keyword for code sections
+                continue
 
             start = end
             try:
@@ -194,7 +256,7 @@ def get_what_sections(readme_path, classification_path):
         #Markdown to plain text
         readme_out = ''.join(readme_out)
         html = markdown(readme_out)
-        text = ''.join(BeautifulSoup(html).findAll(text=True))
+        text = ''.join(BeautifulSoup(html, features="lxml").findAll(text=True))
         text = [line for line in text.split('\n') if len(line) == 0 or line[0] != '|']
         text = text[1:]
         text = '\n'.join(text)
@@ -220,6 +282,23 @@ def get_first_sentences_as_function_name(text, n):
     words = [word for word in words if word != '']
 
     return '_'.join(words)
+
+class NoStdStreams(object):
+    def __init__(self,stdout = None, stderr = None):
+        self.devnull = open(os.devnull,'w')
+        self._stdout = stdout or self.devnull or sys.stdout
+        self._stderr = stderr or self.devnull or sys.stderr
+
+    def __enter__(self):
+        self.old_stdout, self.old_stderr = sys.stdout, sys.stderr
+        self.old_stdout.flush(); self.old_stderr.flush()
+        sys.stdout, sys.stderr = self._stdout, self._stderr
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._stdout.flush(); self._stderr.flush()
+        sys.stdout = self.old_stdout
+        sys.stderr = self.old_stderr
+        self.devnull.close()
 
 
 if __name__ == "__main__":

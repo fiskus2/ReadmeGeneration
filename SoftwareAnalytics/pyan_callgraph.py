@@ -202,12 +202,12 @@ def display_graph(graph, callgraph, centrality, short_names=False, hide_leaves=F
 
 
 def main():
-    projectDir = './pyan'
+    #projectDir = './pyan'
     #projectDir = './TestProjects/Test_ObjectOriented'
     #projectDir = './TestProjects/Test_Functional'
     #projectDir = './TestProjects/Test_Inlining'
     #projectDir = './TestProjects/tootbot'
-
+    projectDir = '../DatasetCreation/data/python-projects-med/tmp/1,someauthor,someproject/'
 
     filenames = get_source_files(projectDir)
     callgraph = make_callgraph(filenames)

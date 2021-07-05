@@ -1739,6 +1739,9 @@ class CallGraphVisitor(ast.NodeVisitor):
 
         Also mark all unknown nodes as not defined (so that they won't be visualized)."""
 
+        if len(self.uses_edges) > 7000:
+            raise ValueError('Project too large, takes too long')
+
         new_defines_edges = []
         for n in self.defines_edges:
             for n2 in self.defines_edges[n]:

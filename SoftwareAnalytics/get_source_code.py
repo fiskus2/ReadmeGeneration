@@ -98,7 +98,8 @@ def get_class(file_content, class_name):
         if in_correct_class:
             in_correct_class = line.startswith(class_indentation) or line == ''
         else:
-            in_correct_class = line.startswith('class ' + class_name + ':') or line.startswith('class ' + class_name + '(')
+            in_correct_class = line.startswith('class ' + class_name + ':') or line.startswith('class ' + class_name + '(') or \
+                               line.startswith('class ' + class_name + ' ' + ':') or line.startswith('class ' + class_name + ' ' + '(')
             first_indentation = in_correct_class
 
         keep = in_correct_class and \
@@ -114,7 +115,7 @@ def get_class(file_content, class_name):
 
 
 def get_function(file_content, function_name):
-    assert sum([1 if line.startswith('def ' + function_name + '(') else 0 for line in file_content]) <= 1
+    #assert sum([1 if line.startswith('def ' + function_name + '(') else 0 for line in file_content]) <= 1
 
 
     stringless = remove_comments([line + '\n' for line in file_content], remove_strings=True)
@@ -129,7 +130,7 @@ def get_function(file_content, function_name):
             if not keep:
                 break
         else:
-            search = re.search(r'(\s*)def ' + function_name + r'\(', line)
+            search = re.search(r'(\s*)def ' + function_name + r'\s*\(', line)
             keep = search != None
             if keep:
                 indentation = search.group(1)
@@ -155,7 +156,8 @@ def get_method(file_content, class_name, method_name):
         if first_indentation:
             class_indentation = re.match('^(\s*)', line).group(0)
             first_indentation = len(class_indentation) == 0 \
-                                or stringless[i-1].endswith('\\')
+                                or stringless[i-1].endswith('\\') \
+                                or line.isspace()
             if first_indentation:
                 continue
 
@@ -163,14 +165,14 @@ def get_method(file_content, class_name, method_name):
             in_correct_class = (not line.startswith('class ') and not line.startswith('def ')) \
             and (line.startswith(' ') or line.startswith('\t') or line.startswith('#') or line == '')
         else:
-            in_correct_class = line.startswith('class ' + class_name + ':') or line.startswith('class ' + class_name + '(')
+            in_correct_class = line.startswith('class ' + class_name + ':') or line.startswith('class ' + class_name + '(') or line.startswith('class ' + class_name + ' ')
             first_indentation = in_correct_class
 
 
         if keep:
             keep = in_correct_class and not line.startswith(class_indentation + 'def ')
         else:
-            keep = line.startswith(class_indentation + 'def ' + method_name + '(')
+            keep = line.startswith(class_indentation + 'def ' + method_name + '(') or line.startswith(class_indentation + 'def ' + method_name + ' ' + '(')
 
         keep = keep and in_correct_class
 
@@ -200,32 +202,41 @@ def remove_comments(code, remove_strings=False):
         if slineno > last_lineno:
             last_col = 0
             if last_line.endswith('\\\n'):
-                result += '\\\n'
+                if not result[max(result.rfind('\n'), 0):].isspace():
+                    result += '\\'
+                result += '\n'
             last_line = ltext
 
+        if slineno < elineno:
+            last_line = code[elineno - 1]
+
         last_lineno = elineno
-        prev_toktype = toktype
 
         if scol > last_col:
             result = result + " " * (scol - last_col)
         if toktype == token.STRING and remove_strings:
             # String
+            prev_toktype = toktype
             result = result + '\n' * ttext.count('\n')
             continue
         elif toktype == token.STRING and prev_toktype == token.INDENT:
             # Docstring
+            prev_toktype = toktype
             result = result + '\n' * ttext.count('\n')
             continue
         elif toktype == tokenize.COMMENT:
             # Comment
+            prev_toktype = toktype
             result = result + '\n' * ttext.count('\n')
             continue
-        else:
+        elif not (prev_toktype == token.COMMENT and ltext.endswith('\\\n') and ttext == '\n'):
             result = result + ttext
 
+        prev_toktype = toktype
         last_col = ecol
 
     result = result[:-1]
+    result = result.replace('\t', ' ')
     result = result.split('\n')
 #    keep = True
 #    for i in range(len(result)):
@@ -290,9 +301,10 @@ def remove_multiline_function_calls(code):
                     # The space is added to prevent '''\n'some string'\n''' from becoming ''''some string''''
                     # which would end the string too early and leave an extra '
                     code[i] += ' ' + code[i+j]
-                    code[i+j] = ''
-                    j += 1
-                i += j - 1
+                    del code[i+j]
+                    del stringless[i+j]
+                    #j += 1
+                #i += j - 1
             i += 1
 
 

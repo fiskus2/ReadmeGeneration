@@ -76,9 +76,12 @@ def download_repo(args):
         with open(repo_dir + '\\descriptor', 'w', encoding="ISO-8859-1") as file:
             file.write(descriptor)
 
-    except FileNotFoundError:
-        #This happens when a path gets too long. The project is discarded in that case
-        shutil.rmtree(repo_dir, ignore_errors=False, onerror=handleRemoveReadonly)
+    except (FileNotFoundError, OSError):
+        #This happens when a path gets too long or has too many levels of symbolic links. The project is discarded in that case
+        try:
+            shutil.rmtree(repo_dir, ignore_errors=False, onerror=handleRemoveReadonly)
+        except OSError:
+            print('OSError in project: ', repo_dir)
 
 
 def main():

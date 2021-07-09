@@ -14,14 +14,21 @@ import nltk
 from itertools import chain
 import traceback
 from lib2to3.main import main as to_py3
-import threading
-import contextlib#
-from multiprocessing import Process, Queue
+from threading import Thread
+import contextlib
 import logging
 import subprocess
+from joblib import Parallel, delayed
+import datetime
+import multiprocessing
+from joblib.externals.loky.backend.context import get_context
+import time
+from thread_with_trace import thread_with_trace
+from glob import glob
 
-input_dir = './data/python-projects-med/tmp/'
-output_dir = './data/python-projects-med/inlining/validation/'
+input_dir = './data/python-projects-large/train/'
+output_dir = './data/python-projects-large/inlining/train/'
+num_threads = 32
 num_core_functions = 10
 num_what_section_sentences = 2
 
@@ -29,9 +36,13 @@ num_what_section_sentences = 2
 #There is one function per project, which is an inlining of the most important functions in the project
 #The function names are the 'what' sections of the corresponding project, which describes the purpose of the project
 def main():
+    print('Started', datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"))
     readme_classifier_input_dir = '../READMEClassifier/input/clf_target_readmes/'
     os.makedirs(output_dir, exist_ok=True)
     projects = os.listdir(input_dir)
+    already_processed = glob(output_dir + '*')
+    already_processed = [os.path.basename(path)[:-3] for path in already_processed]
+    projects = [project for project in projects if project not in already_processed]
 
     #Delete old files in readme classifier input dir
     old_files = os.listdir(readme_classifier_input_dir)
@@ -81,27 +92,56 @@ def main():
     #    print(project + '\t' + get_first_sentences_as_function_name(what_sections.get(author + '.' + project + '.md', ''), num_what_section_sentences).replace('\n', ' ') + '\t' + descriptors[project_folder].replace('\n', ' '))
 
     num_no_what_section = 0
-    for project_folder in projects:
-        id, author, project = project_folder.split(',')
-        try:
-            what_section = what_sections[author + '.' + project + '.md']
-        except KeyError:
-            what_section = descriptors[project_folder]
-
-        if len(what_section) != 0:
+    i = 0
+    while i <= len(projects) - 1:
+        args = []
+        for i in range(i, min(i + 100, len(projects))): #project_folder in projects:
+            project_folder = projects[i]
+            id, author, project = project_folder.split(',')
             try:
-                process_project(project_folder, what_section)
-            except Exception as err:
-                print('Unhandeled error in project ' + project_folder + ': ' + str(err))
-        else:
-            num_no_what_section += 1
-    print('Projects processed: ' + str(len(projects)))
-    print('Projects with no what section and descriptor: ' + num_no_what_section)
+                what_section = what_sections[author + '.' + project + '.md']
+            except KeyError:
+                what_section = descriptors[project_folder]
 
+            if len(what_section) != 0:
+                args.append((project_folder, what_section))
+            else:
+                num_no_what_section += 1
+
+        i += 1
+
+        p = multiprocessing.Pool(num_threads)
+        p.map(process_project, args)
+
+        print('Current progress:', str((100*i)/len(projects)) + '%')
+
+    print('Projects processed: ' + str(len(projects)))
+    print('Projects with no what section and descriptor: ' + str(num_no_what_section))
+    print('Finished', datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"))
+
+def process_project(args):
+    project, what_section = args
+    start = datetime.datetime.now()
+    try:
+        p = thread_with_trace(target=_process_project, args=args)
+        p.start()
+        p.join(90)
+
+        # If thread is active
+        if p.is_alive():
+            p.kill()
+            print('Project ', project, ' took too long and was terminated')
+        #_process_project(project, what_section)
+    except Exception as err:
+        #raise err
+        print('Unhandeled error in project ' + project + ': ' + str(err))
+    finally:
+        end = datetime.datetime.now()
+        print('--Processed ', project, ': ', str((end-start).seconds))
 
 #Determines the most important functions of a project and inlines them into one function
 #Converted: whether a conversion from python2 to python3 has been attempted
-def process_project(project, what_section, converted=False):
+def _process_project(project, what_section, converted=False):
     filenames = get_source_files(input_dir + project)
     if len(filenames) == 0:
         print('Found no relevant files for project: ' + project)
@@ -125,9 +165,12 @@ def process_project(project, what_section, converted=False):
             logger.disabled = True
 
             print('2to3 output start')
-            to_py3("lib2to3.fixes", ['-x', 'filter', '-x', 'map', '-x', 'unicode', '-x', 'xrange', '-x', 'zip', '-n', '-j', '10', '-w', input_dir + project])
+            with open(os.devnull, 'w') as dev_null:
+                with contextlib.redirect_stdout(dev_null):
+                    with contextlib.redirect_stderr(dev_null):
+                        to_py3("lib2to3.fixes", ['-x', 'filter', '-x', 'map', '-x', 'unicode', '-x', 'xrange', '-x', 'zip', '-n', '-w', input_dir + project])
             print('2to3 output end')
-            process_project(project, what_section, converted=True)
+            _process_project(project, what_section, converted=True)
         return
     except KeyError as err:
         if 'for candidate_to_node in self.defines_edges[to_node]:' in traceback.format_exc():
@@ -227,8 +270,15 @@ def get_what_sections(readme_path, classification_path):
         keep = '1' in readme_categorization[0][4] #1 -> 'what' section
         current_readme = readme_categorization[0][2]
 
-        with open(os.path.join(readme_path, current_readme), encoding="utf8") as file:
-            readme_raw = file.readlines()
+        try:
+            with open(os.path.join(readme_path, current_readme), encoding="utf8") as file:
+                readme_raw = file.readlines()
+        except:
+            try:
+                with open(os.path.join(readme_path, current_readme), encoding="ISO-8859-1") as file:
+                    readme_raw = file.readlines()
+            except:
+                continue
 
         end = 0
         for fields in readme_categorization[1:]:
@@ -244,9 +294,12 @@ def get_what_sections(readme_path, classification_path):
                 end = readme_raw.index(fields[3] + '\n')
             except ValueError:
                 searchStr = fields[3][fields[3].find(' ') + 1:] + '\n'
-                end = readme_raw.index(searchStr)
-                next_line_start = readme_raw[end + 1][:2]
-                assert next_line_start == '--' or next_line_start == '=='
+                try:
+                    end = readme_raw.index(searchStr)
+                    next_line_start = readme_raw[end + 1][:2]
+                    assert next_line_start == '--' or next_line_start == '=='
+                except:
+                    end = start + 1
 
             if keep:
                 readme_out = readme_out + readme_raw[start:end]
@@ -282,23 +335,6 @@ def get_first_sentences_as_function_name(text, n):
     words = [word for word in words if word != '']
 
     return '_'.join(words)
-
-class NoStdStreams(object):
-    def __init__(self,stdout = None, stderr = None):
-        self.devnull = open(os.devnull,'w')
-        self._stdout = stdout or self.devnull or sys.stdout
-        self._stderr = stderr or self.devnull or sys.stderr
-
-    def __enter__(self):
-        self.old_stdout, self.old_stderr = sys.stdout, sys.stderr
-        self.old_stdout.flush(); self.old_stderr.flush()
-        sys.stdout, sys.stderr = self._stdout, self._stderr
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._stdout.flush(); self._stderr.flush()
-        sys.stdout = self.old_stdout
-        sys.stderr = self.old_stderr
-        self.devnull.close()
 
 
 if __name__ == "__main__":

@@ -208,8 +208,8 @@ def inline_neighbors(graph, node, code):
                     return_found = True
 
             # remove all return statements
-            elif 'return' in remove_strings([neighbor_code[i]])[0]:
-                neighbor_code[i] = neighbor_code[i][:neighbor_code[i].find('return')] + 'pass'
+            else:
+                re.sub('[^\s](return)[$\s]', 'pass', remove_strings([neighbor_code[i]])[0])
 
 
         insertion_location = insertion_locations[neighbor]

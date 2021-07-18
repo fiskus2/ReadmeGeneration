@@ -330,6 +330,7 @@ def get_what_sections(readme_path, classification_path):
 
 #Returns the first n sentences of a text as function name, i.e. without special character and delimited by _
 def get_first_sentences_as_function_name(text, n):
+    text = re.sub(r'([^\s])\.(\s)', r'\1 endofsentence\2', text)
     tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     sentences = tokenizer.tokenize(text)
     if n > 0 and len(sentences) > n:

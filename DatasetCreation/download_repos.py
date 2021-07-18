@@ -21,7 +21,7 @@ def handleRemoveReadonly(func, path, exc):
 
 #Downloads one repository. Used for parallelization
 def download_repo(args):
-    parts, i, already_downloaded = args
+    folder, parts, i, already_downloaded = args
 
     url = parts[0]
     descriptor = parts[1]
@@ -33,17 +33,9 @@ def download_repo(args):
     if author + ',' + project[:-4] in already_downloaded:
         return
 
-    #Split into train, test and validation folders 80-10-10
-    rnd = random.randint(0, 9)
-    if rnd == 0:
-        split_folder = 'test\\'
-    elif rnd == 1:
-        split_folder = 'validation\\'
-    else:
-        split_folder = 'train\\'
 
     # ',' is used as delimiter, because it cannot occur in github project names
-    repo_dir = download_dir + split_folder + str(i) + ',' + author + ',' + project[:-4]
+    repo_dir = os.path.join(folder, str(i) + ',' + author + ',' + project[:-4])
 
     if i % 100 == 0:
         print(str(i))
@@ -103,7 +95,20 @@ def main():
         with open(filename, encoding="ISO-8859-1", newline='') as projects_file:
             reader = csv.reader(projects_file, delimiter=',', quotechar='"')
             rows = list(reader)
-            args = list(zip(rows, range(i, i + len(rows)), itertools.repeat(already_downloaded)))
+
+            # Split into train, test and validation folders 80-10-10
+            split_paths = []
+            for i in range(len(rows)):
+                rnd = random.randint(0, 9)
+                if rnd == 0:
+                    split_folder = 'test\\'
+                elif rnd == 1:
+                    split_folder = 'validation\\'
+                else:
+                    split_folder = 'train\\'
+                split_paths.append(download_dir + split_folder)
+
+            args = list(zip(split_paths, rows, range(i, i + len(rows)), itertools.repeat(already_downloaded)))
 
             i += len(rows)
             results = Parallel()(map(delayed(download_repo), args))

@@ -14,7 +14,6 @@ import nltk
 from itertools import chain
 import traceback
 from lib2to3.main import main as to_py3
-from threading import Thread
 import contextlib
 import logging
 import subprocess
@@ -44,41 +43,8 @@ def main():
     already_processed = [os.path.basename(path)[:-3] for path in already_processed]
     projects = [project for project in projects if project not in already_processed]
 
-    #Delete old files in readme classifier input dir
-    old_files = os.listdir(readme_classifier_input_dir)
-    for file in old_files:
-        os.remove(os.path.join(readme_classifier_input_dir, file))
-
-    #Find readme files and copy them to readme classifier input dir
-    project_to_readme = {}
-    for project_folder in projects:
-
-        id, author, project = project_folder.split(',')
-        readme_file = ''
-        for root, dirs, files in os.walk(input_dir + project_folder):
-            for file in files:
-                if file.lower() == 'readme' or file.lower() == 'readme.md':
-                    readme_file = os.path.join(root, file)
-                    break
-            if readme_file != '':
-                break
-
-        if readme_file == '':
-            continue
-
-        project_to_readme[project_folder] = readme_file
-        copyfile(readme_file, readme_classifier_input_dir + author + '.' + project + '.md')
-
-    #Execute readme classifier
-    dir = os.getcwd()
-    os.chdir('../READMEClassifier/script/')
-    sys.path.append(os.getcwd())
-    exec(open("empty_all_tables.py").read(), globals())
-    exec(open("load_target_sections.py").read(), globals())
-    exec(open("classifier_classify_target.py").read(), globals())
-    os.chdir(dir)
-
     #The 'what' secion of a readme, which describes the projects purpose
+    classify_readmes(projects, input_dir, readme_classifier_input_dir)
     what_sections = get_what_sections(readme_classifier_input_dir, '../READMEClassifier/output/output_section_codes.csv')
 
     #Project descriptors are used as backup if no what section is found
@@ -110,8 +76,8 @@ def main():
 
         i += 1
 
-        p = multiprocessing.Pool(num_threads)
-        p.map(process_project, args)
+        pool = multiprocessing.Pool(num_threads)
+        pool.map(process_project, args)
 
         print('Current progress:', str((100*i)/len(projects)) + '%')
 
@@ -119,17 +85,58 @@ def main():
     print('Projects with no what section and descriptor: ' + str(num_no_what_section))
     print('Finished', datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"))
 
+def classify_readmes(project_folders, input_dir, readme_classifier_input_dir):
+    # Delete old files in readme classifier input dir
+    old_files = os.listdir(readme_classifier_input_dir)
+    for file in old_files:
+        os.remove(os.path.join(readme_classifier_input_dir, file))
+
+    # Find readme files and copy them to readme classifier input dir
+    project_to_readme = {}
+    for project_folder in project_folders:
+
+        id, author, project = project_folder.split(',')
+        readme_file = ''
+        for root, dirs, files in os.walk(input_dir + project_folder):
+            for file in files:
+                if file.lower() == 'readme' or file.lower() == 'readme.md':
+                    readme_file = os.path.join(root, file)
+                    break
+            if readme_file != '':
+                break
+
+        if readme_file == '':
+            continue
+
+        project_to_readme[project_folder] = readme_file
+        copyfile(readme_file, readme_classifier_input_dir + author + '.' + project + '.md')
+
+    # Execute readme classifier
+    dir = os.getcwd()
+    os.chdir('../READMEClassifier/script/')
+    sys.path.append(os.getcwd())
+    try:
+        old_name = __name__
+    except:
+        old_name = None
+    __name__ = '__main__'
+    exec(open("empty_all_tables.py").read(), globals())
+    exec(open("load_target_sections.py").read(), globals())
+    exec(open("classifier_classify_target.py").read(), globals())
+    __name__ = old_name
+    os.chdir(dir)
+
 def process_project(args):
     project, what_section = args
     start = datetime.datetime.now()
     try:
-        p = thread_with_trace(target=_process_project, args=args)
-        p.start()
-        p.join(90)
+        thread = thread_with_trace(target=_process_project, args=args)
+        thread.start()
+        thread.join(90)
 
         # If thread is active
-        if p.is_alive():
-            p.kill()
+        if thread.is_alive():
+            thread.kill()
             print('Project ', project, ' took too long and was terminated')
         #_process_project(project, what_section)
     except Exception as err:
@@ -325,7 +332,8 @@ def get_what_sections(readme_path, classification_path):
 def get_first_sentences_as_function_name(text, n):
     tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     sentences = tokenizer.tokenize(text)
-    sentences = sentences[:n] if n < len(sentences) else sentences
+    if n > 0 and len(sentences) > n:
+        sentences = sentences[:n]
     words = []
     for sentence in sentences:
         words += nltk.word_tokenize(sentence)

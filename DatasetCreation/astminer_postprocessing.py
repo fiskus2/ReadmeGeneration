@@ -101,9 +101,10 @@ def parse_path_vocab(dataset_path):
 
     return path_vocab
 
-def main():
-    dataset_path = "./data/python-projects-med/astminer/train/py"
-    output_path = "./data/python-projects-med/postprocessed/"
+def main(dataset_path="./data/summary-dataset/processed/train/py/",
+         output_path="./data/summary-dataset/processed/train/postprocessed/"
+         ):
+
     max_contexts = 200
 
     Path(output_path).mkdir(parents=True, exist_ok=True)

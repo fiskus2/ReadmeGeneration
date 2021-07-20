@@ -1,3 +1,5 @@
+#Determines the top functions of a project and saves them along with a target readme file
+
 from make_inlining_dataset import classify_readmes, get_what_sections
 import os
 import datetime
@@ -17,7 +19,7 @@ import sys
 import re
 
 
-dataset_part = 'train'
+dataset_part = 'test'
 input_dir = './data/python-projects-med/' + dataset_part + '/'
 output_dir = './data/summary-dataset/' + dataset_part + '/'
 num_threads = 12
@@ -147,7 +149,7 @@ def _process_project(project, what_section, converted=False):
     centrality = reverse_katz_centrality(graph)
 
     #Gets 150% of needed core functions, in case the sourcecode of some functions cannot be found
-    core_functions = get_core_functions(round(num_core_functions*1.5), centrality, callgraph)
+    core_functions = get_core_functions(round(num_core_functions*1.5), centrality, callgraph, only_functions=True)
 
     i = 0
     while i != min(num_core_functions, len(core_functions)):

@@ -28,7 +28,7 @@ def get_module_of_function(function, module_graph):
     else:
         return function
 
-def get_core_functions(n, centrality, callgraph):
+def get_core_functions(n, centrality, callgraph, only_functions=False):
     core_functions = []
     i = 0
 
@@ -44,6 +44,9 @@ def get_core_functions(n, centrality, callgraph):
 
         # Dont use functions that could not be resolved properly
         if any([symbol in candidate for symbol in blacklist]):
+            continue
+
+        if only_functions and not (candidate.startswith('<Node function') or candidate.startswith('<Node method')):
             continue
 
         # Only use functions that are part of the project

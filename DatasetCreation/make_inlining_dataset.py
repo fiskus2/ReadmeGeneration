@@ -109,7 +109,8 @@ def classify_readmes(project_folders, input_dir, readme_classifier_input_dir):
             continue
 
         project_to_readme[project_folder] = readme_file
-        copyfile(readme_file, readme_classifier_input_dir + author + '.' + project + '.md')
+        if not os.path.islink(readme_file):
+            copyfile(readme_file, readme_classifier_input_dir + author + '.' + project + '.md')
 
     # Execute readme classifier
     dir = os.getcwd()

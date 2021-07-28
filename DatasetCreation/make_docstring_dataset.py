@@ -1,3 +1,6 @@
+#Creates a code2seq dataset from CodeSearchNet
+#Saves the sourcecode of the function to a file using its docstring as function name
+
 from make_inlining_dataset import get_first_sentences_as_function_name
 import os
 from glob import glob
@@ -14,6 +17,7 @@ def main():
     if len(dirs) == 0:
         dirs = [input_dir]
 
+    total_index = 0
     for dir in dirs:
         parts = glob(os.path.join(dir, '*.jsonl'))
         base_dir = os.path.join(output_dir, os.path.basename(dir))
@@ -35,9 +39,9 @@ def main():
                 code = entry['code']
                 code = 'def ' + new_name + code[code.index('('):]
 
-                with open(os.path.join(base_dir, str(i) + '.py'), 'w', encoding="UTF-8") as file:
+                with open(os.path.join(base_dir, str(total_index + i) + '.py'), 'w', encoding="UTF-8") as file:
                     file.write(code)
-
+            total_index += len(data)
 
 
 if __name__ == '__main__':

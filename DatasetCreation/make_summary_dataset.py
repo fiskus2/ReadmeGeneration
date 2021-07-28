@@ -31,7 +31,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     projects = os.listdir(input_dir)
     already_processed = glob(output_dir + '*')
-    already_processed = [os.path.basename(path)[:-3] for path in already_processed]
+    already_processed = [os.path.basename(path) for path in already_processed]
     projects = [project for project in projects if project not in already_processed]
 
     #The 'what' secion of a readme, which describes the projects purpose
@@ -41,8 +41,11 @@ def main():
     # Project descriptors are used as backup if no what section is found
     descriptors = {}
     for project_folder in projects:
-        with open(input_dir + project_folder + '/descriptor', 'r', encoding="ISO-8859-1") as file:
-            descriptors[project_folder] = file.read()
+        try:
+            with open(input_dir + project_folder + '/descriptor', 'r', encoding="ISO-8859-1") as file:
+                descriptors[project_folder] = file.read()
+        except FileNotFoundError:
+            descriptors[project_folder] = ''
 
     num_no_what_section = 0
     i = 0
@@ -152,9 +155,11 @@ def _process_project(project, what_section, converted=False):
     core_functions = get_core_functions(round(num_core_functions*1.5), centrality, callgraph, only_functions=True)
 
     i = 0
-    while i != min(num_core_functions, len(core_functions)):
+    successful = 0
+    while successful != min(num_core_functions, len(core_functions)):
         code = get_source_code(callgraph.module_to_filename, core_functions[i])
         if len(code) == 0:
+            i += 1
             continue
 
         unnecessary_indentation = re.search(r'^(\s*)', code[0]).group(1)
@@ -168,6 +173,7 @@ def _process_project(project, what_section, converted=False):
             file.write('\n'.join(code))
 
         i += 1
+        successful += 1
 
     with open(os.path.join(dir, 'readme.md'), 'w', encoding="ISO-8859-1") as file:
         file.write(what_section)

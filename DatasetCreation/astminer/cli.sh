@@ -15,5 +15,3 @@ else
   docker run --rm $IMAGE_NAME "$@"
 fi
 
-read varname
-

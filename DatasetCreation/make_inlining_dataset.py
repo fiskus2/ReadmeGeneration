@@ -53,10 +53,6 @@ def main():
         with open(input_dir + project_folder + '/descriptor', 'r', encoding="ISO-8859-1") as file:
             descriptors[project_folder] = file.read()
 
-    #for project_folder in projects:
-    #    id, author, project = project_folder.split(',')
-    #    print(project + '\t' + get_first_sentences_as_function_name(what_sections.get(author + '.' + project + '.md', ''), num_what_section_sentences).replace('\n', ' ') + '\t' + descriptors[project_folder].replace('\n', ' '))
-
     num_no_what_section = 0
     i = 0
     while i <= len(projects) - 1:
@@ -275,8 +271,12 @@ def get_what_sections(readme_path, classification_path):
     #Find the 'what' section in the readme file and extract it
     for readme_categorization in readme_categorizations:
         readme_out = []
-        keep = '1' in readme_categorization[0][4] #1 -> 'what' section
-        current_readme = readme_categorization[0][2]
+        try:
+            keep = '1' in readme_categorization[0][4] #1 -> 'what' section
+            current_readme = readme_categorization[0][2]
+        except IndexError:
+            print("IndexError in get_what_sections")
+            continue
 
         try:
             with open(os.path.join(readme_path, current_readme), encoding="utf8") as file:
@@ -316,7 +316,10 @@ def get_what_sections(readme_path, classification_path):
 
         #Markdown to plain text
         readme_out = ''.join(readme_out)
-        html = markdown(readme_out)
+        try:
+            html = markdown(readme_out)
+        except AttributeError:
+            continue
         text = ''.join(BeautifulSoup(html, features="lxml").findAll(text=True))
         text = [line for line in text.split('\n') if len(line) == 0 or line[0] != '|']
         text = text[1:]
@@ -331,11 +334,12 @@ def get_what_sections(readme_path, classification_path):
 
 #Returns the first n sentences of a text as function name, i.e. without special character and delimited by _
 def get_first_sentences_as_function_name(text, n):
-    text = re.sub(r'([^\s])\.(\s)', r'\1 endofsentence\2', text)
     tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     sentences = tokenizer.tokenize(text)
     if n > 0 and len(sentences) > n:
         sentences = sentences[:n]
+
+    sentences = [re.sub(r'([^\s])\.(\s?)', r'\1 endofsentence\2', sentence) for sentence in sentences]
     words = []
     for sentence in sentences:
         words += nltk.word_tokenize(sentence)

@@ -1,3 +1,4 @@
+#Run astminer_postprocessing for each project individually
 from astminer_postprocessing import main as postprocess
 from glob import glob
 import os
